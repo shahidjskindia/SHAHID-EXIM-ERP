@@ -5,59 +5,610 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Gateway EXIM - Freight Quotation System</title>
     <link rel="stylesheet" href="styles.css" />
-    <!-- Libraries -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <!-- html2canvas for exact PDF match -->
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js">
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.8.2/jspdf.plugin.autotable.min.js">
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js">
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js">
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js">
+    </script>
+    <style>
+        /* ===== DSR MODULE ENHANCEMENTS ===== */
+        :root {
+            --dsr-header-green: #008000;
+            --dsr-header-blue: #0000cc;
+            --dsr-label-purple: #4a0e4e;
+            --dsr-teal: #008080;
+            --dsr-red: #ff0000;
+            --dsr-orange: #cc6600;
+            --dsr-dark-blue: #000066;
+            --dsr-light-gray: #e0e0e0;
+            --dsr-border: #999;
+        }
+
+        /* ---- Add Shipment Dropdown ---- */
+        .add-shipment-wrapper {
+            position: relative;
+            display: inline-block;
+        }
+        .add-shipment-wrapper .btn {
+            min-width: 160px;
+            text-align: left;
+            padding-right: 30px;
+        }
+        .add-shipment-wrapper .btn::after {
+            content: '▼';
+            position: absolute;
+            right: 10px;
+            top: 50%;
+            transform: translateY(-50%);
+            font-size: 0.7rem;
+        }
+        .add-shipment-dropdown {
+            display: none;
+            position: absolute;
+            top: 100%;
+            left: 0;
+            min-width: 200px;
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
+            z-index: 2000;
+            overflow: hidden;
+            margin-top: 4px;
+        }
+        .add-shipment-dropdown.show {
+            display: block;
+        }
+        .add-shipment-dropdown .dropdown-item {
+            padding: 10px 16px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            font-weight: 600;
+            font-size: 0.85rem;
+            border-bottom: 1px solid var(--border);
+            transition: background 0.15s;
+            color: var(--text);
+        }
+        .add-shipment-dropdown .dropdown-item:last-child {
+            border-bottom: none;
+        }
+        .add-shipment-dropdown .dropdown-item:hover {
+            background: var(--primary-light);
+            color: white;
+        }
+        .add-shipment-dropdown .dropdown-item .icon {
+            font-size: 1.2rem;
+        }
+
+        /* ---- DSR List Sections ---- */
+        .dsr-section-header {
+            padding: 8px 14px;
+            margin: 16px 0 8px 0;
+            border-radius: 5px;
+            font-weight: 700;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            color: white;
+            background: var(--dsr-header-blue);
+        }
+        .dsr-section-header.sea-header {
+            background: var(--dsr-header-green);
+        }
+        .dsr-section-header .badge {
+            background: rgba(255, 255, 255, 0.25);
+            padding: 2px 12px;
+            border-radius: 12px;
+            font-size: 0.8rem;
+            margin-left: auto;
+        }
+
+        /* ---- DSR Popup Modal (SEA / AIR) ---- */
+        .dsr-popup-modal .modal-content {
+            max-width: 1200px;
+            width: 95%;
+            max-height: 95vh;
+            background: #d4d4d4 !important;
+            border: 2px solid #666;
+            border-radius: 0;
+            padding: 0;
+            overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+        .dsr-popup-modal .modal-header {
+            background: var(--dsr-header-green);
+            color: white;
+            padding: 6px 16px;
+            border-radius: 0;
+            font-size: 1.2rem;
+            font-weight: 700;
+            letter-spacing: 0.5px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            min-height: 42px;
+        }
+        .dsr-popup-modal.air .modal-header {
+            background: var(--dsr-header-blue);
+        }
+        .dsr-popup-modal .modal-header .close-modal {
+            color: white;
+            font-size: 1.6rem;
+            opacity: 0.8;
+        }
+        .dsr-popup-modal .modal-body {
+            padding: 8px 12px 12px 12px;
+            background: #d4d4d4 !important;
+            color: #1a1a1a !important;
+            max-height: calc(95vh - 50px);
+            overflow-y: auto;
+        }
+
+        /* ---- DSR Popup Button Bar ---- */
+        .dsr-btn-bar {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 8px;
+            flex-wrap: wrap;
+            background: #d4d4d4;
+            padding: 4px 0;
+        }
+        .dsr-btn-bar .btn {
+            border-radius: 0;
+            padding: 4px 18px;
+            font-weight: 700;
+            font-size: 0.8rem;
+            text-transform: none;
+            letter-spacing: 0;
+            border: 1px solid #555;
+            color: white;
+        }
+        .dsr-btn-bar .btn-search {
+            background: var(--dsr-orange);
+        }
+        .dsr-btn-bar .btn-modify {
+            background: #00aa00;
+        }
+        .dsr-btn-bar .btn-addnew {
+            background: var(--dsr-dark-blue);
+        }
+        .dsr-btn-bar .btn-clear-dsr {
+            background: var(--dsr-dark-blue);
+        }
+        .dsr-btn-bar .btn-exit {
+            background: var(--dsr-red);
+        }
+        .dsr-btn-bar .btn-save-dsr {
+            background: #00aa00;
+        }
+        .dsr-btn-bar .btn-update-dsr {
+            background: var(--dsr-orange);
+        }
+        .dsr-btn-bar .btn-cancel-dsr {
+            background: #888;
+        }
+        .dsr-btn-bar .btn-print-dsr {
+            background: #555;
+        }
+        .dsr-btn-bar .btn-pdf-dsr {
+            background: #8b5cf6;
+        }
+        .dsr-btn-bar .btn-dup-dsr {
+            background: #06b6d4;
+        }
+        .dsr-btn-bar .btn-del-dsr {
+            background: var(--dsr-red);
+        }
+        .dsr-btn-bar .btn-close-dsr {
+            background: #888;
+        }
+        .dsr-btn-bar .btn:hover {
+            transform: none;
+            box-shadow: none;
+            opacity: 0.9;
+        }
+
+        /* ---- DSR Popup Form Grids ---- */
+        .dsr-form-grid {
+            display: grid;
+            gap: 4px;
+            background: #d4d4d4;
+            padding: 2px 0;
+        }
+        .dsr-form-grid.cols-3 {
+            grid-template-columns: 1fr 1fr 1fr;
+        }
+        .dsr-form-grid.cols-2 {
+            grid-template-columns: 1fr 1fr;
+        }
+        .dsr-form-grid.cols-4 {
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+        }
+        .dsr-form-grid .dsr-field {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 1px 0;
+        }
+        .dsr-form-grid .dsr-field label {
+            background: var(--dsr-label-purple);
+            color: white;
+            padding: 3px 8px;
+            font-weight: 700;
+            font-size: 0.7rem;
+            min-width: 80px;
+            text-align: left;
+            letter-spacing: 0.3px;
+            white-space: nowrap;
+            border-radius: 0;
+            flex-shrink: 0;
+        }
+        .dsr-form-grid .dsr-field label.teal-label {
+            background: var(--dsr-teal);
+        }
+        .dsr-form-grid .dsr-field label.green-label {
+            background: #008000;
+        }
+        .dsr-form-grid .dsr-field label.red-label {
+            background: var(--dsr-red);
+        }
+        .dsr-form-grid .dsr-field label.darkblue-label {
+            background: var(--dsr-dark-blue);
+        }
+        .dsr-form-grid .dsr-field input,
+        .dsr-form-grid .dsr-field select,
+        .dsr-form-grid .dsr-field textarea {
+            flex: 1;
+            padding: 3px 6px;
+            border: 1px solid #999;
+            border-radius: 0;
+            font-size: 0.75rem;
+            background: white;
+            color: #1a1a1a;
+            min-height: 24px;
+        }
+        .dsr-form-grid .dsr-field input:focus,
+        .dsr-form-grid .dsr-field select:focus,
+        .dsr-form-grid .dsr-field textarea:focus {
+            outline: 2px solid var(--primary-light);
+            border-color: var(--primary-light);
+        }
+        .dsr-form-grid .dsr-field .sell-bg {
+            background: #008000;
+            color: white;
+        }
+        .dsr-form-grid .dsr-field .buy-bg {
+            background: var(--dsr-red);
+            color: white;
+        }
+        .dsr-form-grid .dsr-field .margin-bg {
+            background: #ffff00;
+            color: #1a1a1a;
+            font-weight: 700;
+        }
+        .dsr-form-grid .dsr-field .result-display {
+            background: #e8e8e8;
+            font-weight: 700;
+            text-align: center;
+        }
+
+        /* ---- Section Headers inside Popup ---- */
+        .dsr-section-title {
+            background: var(--dsr-dark-blue);
+            color: white;
+            padding: 4px 12px;
+            font-weight: 700;
+            font-size: 0.9rem;
+            margin: 8px 0 4px 0;
+            letter-spacing: 0.5px;
+        }
+        .dsr-section-title.green-title {
+            background: var(--dsr-header-green);
+        }
+        .dsr-section-title.teal-title {
+            background: var(--dsr-teal);
+        }
+
+        /* ---- Charges Grid (SEA) ---- */
+        .dsr-charges-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            padding: 4px 0;
+        }
+        .dsr-charges-grid .charge-row {
+            display: flex;
+            align-items: center;
+            gap: 4px;
+            padding: 1px 0;
+        }
+        .dsr-charges-grid .charge-row label {
+            background: var(--dsr-label-purple);
+            color: white;
+            padding: 3px 8px;
+            font-weight: 700;
+            font-size: 0.7rem;
+            min-width: 70px;
+            text-align: left;
+            flex-shrink: 0;
+        }
+        .dsr-charges-grid .charge-row label.teal {
+            background: var(--dsr-teal);
+        }
+        .dsr-charges-grid .charge-row input {
+            flex: 1;
+            padding: 3px 6px;
+            border: 1px solid #999;
+            border-radius: 0;
+            font-size: 0.75rem;
+            background: white;
+            color: #1a1a1a;
+            min-height: 22px;
+        }
+
+        /* ---- AIR Quote Charges Grid ---- */
+        .dsr-air-charges-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr 1fr 1fr;
+            gap: 4px;
+            padding: 4px 0;
+        }
+        .dsr-air-charges-grid .charge-item {
+            display: flex;
+            align-items: center;
+            gap: 3px;
+        }
+        .dsr-air-charges-grid .charge-item label {
+            background: var(--dsr-teal);
+            color: white;
+            padding: 3px 6px;
+            font-weight: 700;
+            font-size: 0.65rem;
+            min-width: 60px;
+            text-align: left;
+            flex-shrink: 0;
+            border-radius: 0;
+        }
+        .dsr-air-charges-grid .charge-item input {
+            flex: 1;
+            padding: 3px 6px;
+            border: 1px solid #999;
+            border-radius: 0;
+            font-size: 0.7rem;
+            background: white;
+            color: #1a1a1a;
+            min-height: 22px;
+        }
+
+        /* ---- Read-only preview ---- */
+        .dsr-preview-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 6px;
+            background: #f5f5f5;
+            padding: 12px;
+            border: 1px solid #ccc;
+        }
+        .dsr-preview-grid .item {
+            padding: 4px 8px;
+            border-bottom: 1px solid #ddd;
+            display: flex;
+            justify-content: space-between;
+        }
+        .dsr-preview-grid .item .label {
+            font-weight: 600;
+            color: #555;
+            font-size: 0.8rem;
+        }
+        .dsr-preview-grid .item .value {
+            font-weight: 500;
+            font-size: 0.85rem;
+        }
+
+        /* ---- Responsive ---- */
+        @media (max-width: 1024px) {
+            .dsr-form-grid.cols-3 {
+                grid-template-columns: 1fr 1fr;
+            }
+            .dsr-air-charges-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            .dsr-charges-grid {
+                grid-template-columns: 1fr;
+            }
+            .dsr-popup-modal .modal-content {
+                width: 98%;
+            }
+        }
+        @media (max-width: 768px) {
+            .dsr-form-grid.cols-3,
+            .dsr-form-grid.cols-2 {
+                grid-template-columns: 1fr;
+            }
+            .dsr-air-charges-grid {
+                grid-template-columns: 1fr 1fr;
+            }
+            .dsr-charges-grid {
+                grid-template-columns: 1fr;
+            }
+            .dsr-btn-bar .btn {
+                font-size: 0.65rem;
+                padding: 3px 10px;
+            }
+            .dsr-form-grid .dsr-field label {
+                min-width: 60px;
+                font-size: 0.6rem;
+                padding: 2px 6px;
+            }
+            .dsr-popup-modal .modal-content {
+                width: 100%;
+                max-height: 100vh;
+                border-radius: 0;
+            }
+            .dsr-popup-modal .modal-body {
+                padding: 6px 8px;
+            }
+            .dsr-section-title {
+                font-size: 0.75rem;
+                padding: 3px 8px;
+            }
+        }
+        @media (max-width: 480px) {
+            .dsr-air-charges-grid {
+                grid-template-columns: 1fr;
+            }
+            .dsr-form-grid .dsr-field {
+                flex-wrap: wrap;
+            }
+            .dsr-form-grid .dsr-field label {
+                min-width: 100%;
+            }
+            .dsr-btn-bar {
+                gap: 3px;
+            }
+            .dsr-btn-bar .btn {
+                font-size: 0.55rem;
+                padding: 2px 8px;
+            }
+        }
+
+        /* ===== LOGIN OVERLAY ===== */
+        #login-overlay {
+            position: fixed;
+            top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            background: rgba(0, 0, 0, 0.7);
+            z-index: 99999;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            backdrop-filter: blur(4px);
+        }
+        #login-overlay.hidden {
+            display: none !important;
+        }
+        .login-box {
+            background: var(--card-bg);
+            width: 360px;
+            border-radius: 12px;
+            box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+            padding: 20px;
+            border: 1px solid var(--border);
+        }
+        .login-header {
+            font-size: 1.4rem;
+            font-weight: 800;
+            color: var(--primary);
+            text-align: center;
+            margin-bottom: 20px;
+            letter-spacing: 0.5px;
+        }
+        [data-theme="dark"] .login-box {
+            background: #1e293b;
+        }
+
+        /* ===== USER PERMISSION CHECKBOXES ===== */
+        .perm-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+            gap: 6px;
+            margin: 8px 0;
+        }
+        .perm-grid label {
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            cursor: pointer;
+            padding: 4px 8px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            background: var(--bg);
+        }
+        .perm-grid label input {
+            width: 16px;
+            height: 16px;
+            cursor: pointer;
+        }
+        .perm-grid label.disabled {
+            opacity: 0.5;
+            cursor: not-allowed;
+        }
+        .perm-grid label.disabled input {
+            cursor: not-allowed;
+        }
+    </style>
 </head>
 <body>
     <header>
         <div class="header-left"><h1>🚢 Freight Forwarding Quotation System</h1></div>
-        <div class="header-actions"><button class="theme-toggle" onclick="toggleDarkMode()">🌙 Dark Mode</button></div>
+        <div class="header-actions"><button class="theme-toggle" type="button" onclick="toggleDarkMode()">🌙 Dark Mode</button></div>
     </header>
 
     <div class="app-wrapper">
         <!-- Navigation -->
         <nav class="tab-nav-vertical">
+            <!-- NEW QUOTE -->
             <div class="nav-category">
                 <div class="nav-category-header" onclick="toggleCategory('newQuote')">
-                    <span>📝 New Quote</span><span class="arrow" id="arrow-newQuote">▼</span>
+                    <span>📝 NEW QUOTE</span><span class="arrow" id="arrow-newQuote">▼</span>
                 </div>
                 <div class="nav-category-items" id="cat-newQuote">
-                    <button class="tab-btn-vertical" data-tab="sea">🚢 SEA Quote</button>
-                    <button class="tab-btn-vertical" data-tab="air">✈️ AIR Quote</button>
-                    <button class="tab-btn-vertical" data-tab="lcl">📦 LCL Quote</button>
+                    <button class="tab-btn-vertical" data-tab="sea" type="button">🚢 SEA Quote</button>
+                    <button class="tab-btn-vertical" data-tab="air" type="button">✈️ AIR Quote</button>
+                    <button class="tab-btn-vertical" data-tab="lcl" type="button">📦 LCL Quote</button>
                 </div>
             </div>
+            <!-- QUOTE & RATE SHEET -->
             <div class="nav-category">
-                <div class="nav-category-header" onclick="toggleCategory('savedQuotes')">
-                    <span>💾 Saved Quotes</span><span class="arrow" id="arrow-savedQuotes">▼</span>
+                <div class="nav-category-header" onclick="toggleCategory('quoteSheet')">
+                    <span>💾 QUOTE & RATE SHEET</span><span class="arrow" id="arrow-quoteSheet">▼</span>
                 </div>
-                <div class="nav-category-items" id="cat-savedQuotes">
-                    <button class="tab-btn-vertical" data-tab="drafts">📝 Drafts</button>
-                    <button class="tab-btn-vertical" data-tab="rates">💰 Rate Quotes</button>
-                    <button class="tab-btn-vertical" data-tab="ratesheet">📋 Rate Sheet</button>
-                    <button class="tab-btn-vertical" data-tab="localcharges">📦 Local Charges</button>
+                <div class="nav-category-items" id="cat-quoteSheet">
+                    <button class="tab-btn-vertical" data-tab="drafts" type="button">📝 Drafts</button>
+                    <button class="tab-btn-vertical" data-tab="rates" type="button">💰 Rates Quoted</button>
+                    <button class="tab-btn-vertical" data-tab="ratesheet" type="button">📋 Rate Sheet</button>
                 </div>
             </div>
+            <!-- DSR -->
             <div class="nav-category">
-                <div class="nav-category-header" onclick="toggleCategory('tools')">
-                    <span>🛠️ Tools</span><span class="arrow" id="arrow-tools">▼</span>
+                <div class="nav-category-header" onclick="toggleCategory('dsrCat')">
+                    <span>📊 DSR</span><span class="arrow" id="arrow-dsrCat">▼</span>
                 </div>
-                <div class="nav-category-items" id="cat-tools">
-                    <button class="tab-btn-vertical" data-tab="followup">📅 Follow-ups</button>
-                    <button class="tab-btn-vertical" data-tab="dashboard">📊 Dashboard</button>
-                    <button class="tab-btn-vertical" data-tab="measurement">📏 Measurement</button>
+                <div class="nav-category-items" id="cat-dsrCat">
+                    <button class="tab-btn-vertical" data-tab="dsr" type="button">🚢 Shipment List</button>
+                    <button class="tab-btn-vertical" data-tab="bldraft" type="button">📄 BL Draft</button>
                 </div>
             </div>
+            <!-- REPORTS -->
+            <div class="nav-category">
+                <div class="nav-category-header" onclick="toggleCategory('reports')">
+                    <span>📈 REPORTS</span><span class="arrow" id="arrow-reports">▼</span>
+                </div>
+                <div class="nav-category-items" id="cat-reports">
+                    <button class="tab-btn-vertical" data-tab="dashboard" type="button">📊 Dashboard</button>
+                    <button class="tab-btn-vertical" data-tab="measurement" type="button">📏 Measurement</button>
+                </div>
+            </div>
+            <!-- ADMIN -->
             <div class="nav-category">
                 <div class="nav-category-header" onclick="toggleCategory('admin')">
-                    <span>⚙️ Admin</span><span class="arrow" id="arrow-admin">▼</span>
+                    <span>⚙️ ADMIN</span><span class="arrow" id="arrow-admin">▼</span>
                 </div>
                 <div class="nav-category-items" id="cat-admin">
-                    <button class="tab-btn-vertical" data-tab="database">🗄️ Database</button>
+                    <button class="tab-btn-vertical" data-tab="database" type="button">🗄️ Database</button>
+                    <button class="tab-btn-vertical" data-tab="sealocal" type="button">🚢 Sea Local Charges</button>
+                    <button class="tab-btn-vertical" data-tab="airlocal" type="button">✈️ Air Local Charges</button>
+                    <button class="tab-btn-vertical" data-tab="lcllocal" type="button">📦 LCL Local Charges</button>
                 </div>
             </div>
         </nav>
@@ -94,9 +645,9 @@
                     </div>
                     <div class="charges-grid" id="sea-charges-grid"></div>
                     <div style="margin-top:10px;text-align:center;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-                        <button class="btn btn-success" onclick="openAddChargeModal('sea')">+ Add New Charge</button>
-                        <button class="btn btn-info" onclick="saveLocalCharges('sea')">💾 Save Local Charges</button>
-                        <button class="btn btn-warning" onclick="saveFreightRate('sea')">📋 Save Freight Rate</button>
+                        <button class="btn btn-success" type="button" onclick="openAddChargeModal('sea')">+ Add New Charge</button>
+                        <button class="btn btn-info" type="button" onclick="saveLocalCharges('sea')">💾 Save Local Charges</button>
+                        <button class="btn btn-warning" type="button" onclick="saveFreightRate('sea')">📋 Save Freight Rate</button>
                     </div>
                 </div>
 
@@ -108,12 +659,12 @@
                 </div>
 
                 <div class="action-bar">
-                    <button class="btn btn-save" onclick="saveRecord('sea','drafts')">💾 SAVE</button>
-                    <button class="btn btn-clear" onclick="clearFormWithConfirm('sea')">🗑️ CLEAR</button>
-                    <button class="btn btn-quoted" onclick="saveRecord('sea','rates','QUOTED')">📤 QUOTE</button>
-                    <button class="btn btn-pdf" onclick="downloadPDF('sea')">📄 PDF</button>
-                    <button class="btn btn-preview" onclick="previewQuote('sea')">👁 PREVIEW</button>
-                    <button class="btn btn-duplicate" onclick="copyQuoteData('sea')">📋 COPY</button>
+                    <button class="btn btn-save" type="button" onclick="saveRecord('sea','drafts')">💾 SAVE</button>
+                    <button class="btn btn-clear" type="button" onclick="clearFormWithConfirm('sea')">🗑️ CLEAR</button>
+                    <button class="btn btn-quoted" type="button" onclick="saveRecord('sea','rates','QUOTED')">📤 QUOTE</button>
+                    <button class="btn btn-pdf" type="button" onclick="downloadPDF('sea')">📄 PDF</button>
+                    <button class="btn btn-preview" type="button" onclick="previewQuote('sea')">👁 PREVIEW</button>
+                    <button class="btn btn-duplicate" type="button" onclick="copyQuoteData('sea')">📋 COPY</button>
                 </div>
             </div>
 
@@ -149,9 +700,9 @@
                     </div>
                     <div class="charges-grid" id="air-charges-grid"></div>
                     <div style="margin-top:10px;text-align:center;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-                        <button class="btn btn-success" onclick="openAddChargeModal('air')">+ Add New Charge</button>
-                        <button class="btn btn-info" onclick="saveLocalCharges('air')">💾 Save Local Charges</button>
-                        <button class="btn btn-warning" onclick="saveFreightRate('air')">📋 Save Freight Rate</button>
+                        <button class="btn btn-success" type="button" onclick="openAddChargeModal('air')">+ Add New Charge</button>
+                        <button class="btn btn-info" type="button" onclick="saveLocalCharges('air')">💾 Save Local Charges</button>
+                        <button class="btn btn-warning" type="button" onclick="saveFreightRate('air')">📋 Save Freight Rate</button>
                     </div>
                 </div>
 
@@ -163,12 +714,12 @@
                 </div>
 
                 <div class="action-bar">
-                    <button class="btn btn-save" onclick="saveRecord('air','drafts')">💾 SAVE</button>
-                    <button class="btn btn-clear" onclick="clearFormWithConfirm('air')">🗑️ CLEAR</button>
-                    <button class="btn btn-quoted" onclick="saveRecord('air','rates','QUOTED')">📤 QUOTE</button>
-                    <button class="btn btn-pdf" onclick="downloadPDF('air')">📄 PDF</button>
-                    <button class="btn btn-preview" onclick="previewQuote('air')">👁 PREVIEW</button>
-                    <button class="btn btn-duplicate" onclick="copyQuoteData('air')">📋 COPY</button>
+                    <button class="btn btn-save" type="button" onclick="saveRecord('air','drafts')">💾 SAVE</button>
+                    <button class="btn btn-clear" type="button" onclick="clearFormWithConfirm('air')">🗑️ CLEAR</button>
+                    <button class="btn btn-quoted" type="button" onclick="saveRecord('air','rates','QUOTED')">📤 QUOTE</button>
+                    <button class="btn btn-pdf" type="button" onclick="downloadPDF('air')">📄 PDF</button>
+                    <button class="btn btn-preview" type="button" onclick="previewQuote('air')">👁 PREVIEW</button>
+                    <button class="btn btn-duplicate" type="button" onclick="copyQuoteData('air')">📋 COPY</button>
                 </div>
             </div>
 
@@ -203,9 +754,9 @@
                     </div>
                     <div class="charges-grid" id="lcl-charges-grid"></div>
                     <div style="margin-top:10px;text-align:center;display:flex;gap:8px;justify-content:center;flex-wrap:wrap;">
-                        <button class="btn btn-success" onclick="openAddChargeModal('lcl')">+ Add New Charge</button>
-                        <button class="btn btn-info" onclick="saveLocalCharges('lcl')">💾 Save Local Charges</button>
-                        <button class="btn btn-warning" onclick="saveFreightRate('lcl')">📋 Save Freight Rate</button>
+                        <button class="btn btn-success" type="button" onclick="openAddChargeModal('lcl')">+ Add New Charge</button>
+                        <button class="btn btn-info" type="button" onclick="saveLocalCharges('lcl')">💾 Save Local Charges</button>
+                        <button class="btn btn-warning" type="button" onclick="saveFreightRate('lcl')">📋 Save Freight Rate</button>
                     </div>
                 </div>
 
@@ -217,12 +768,12 @@
                 </div>
 
                 <div class="action-bar">
-                    <button class="btn btn-save" onclick="saveRecord('lcl','drafts')">💾 SAVE</button>
-                    <button class="btn btn-clear" onclick="clearFormWithConfirm('lcl')">🗑️ CLEAR</button>
-                    <button class="btn btn-quoted" onclick="saveRecord('lcl','rates','QUOTED')">📤 QUOTE</button>
-                    <button class="btn btn-pdf" onclick="downloadPDF('lcl')">📄 PDF</button>
-                    <button class="btn btn-preview" onclick="previewQuote('lcl')">👁 PREVIEW</button>
-                    <button class="btn btn-duplicate" onclick="copyQuoteData('lcl')">📋 COPY</button>
+                    <button class="btn btn-save" type="button" onclick="saveRecord('lcl','drafts')">💾 SAVE</button>
+                    <button class="btn btn-clear" type="button" onclick="clearFormWithConfirm('lcl')">🗑️ CLEAR</button>
+                    <button class="btn btn-quoted" type="button" onclick="saveRecord('lcl','rates','QUOTED')">📤 QUOTE</button>
+                    <button class="btn btn-pdf" type="button" onclick="downloadPDF('lcl')">📄 PDF</button>
+                    <button class="btn btn-preview" type="button" onclick="previewQuote('lcl')">👁 PREVIEW</button>
+                    <button class="btn btn-duplicate" type="button" onclick="copyQuoteData('lcl')">📋 COPY</button>
                 </div>
             </div>
 
@@ -234,7 +785,7 @@
                     <input type="text" id="drafts-search-text" class="search-box" placeholder="🔍 Client / POL / POD" style="flex:2;margin:0;" oninput="debouncedSearch('drafts')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
                     <input type="text" id="drafts-search-qn" class="search-box" placeholder="🔍 Quote No." style="flex:1;margin:0;" oninput="debouncedSearch('drafts')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
                     <input type="date" id="drafts-search-date" class="search-box" style="flex:1;margin:0;" onchange="renderRecords('drafts')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                    <button class="btn btn-clear" onclick="clearFilters('drafts')" style="height:36px;">Clear</button>
+                    <button class="btn btn-clear" type="button" onclick="clearFilters('drafts')" style="height:36px;">Clear</button>
                 </div>
                 <div class="section-heading highlight-sea">🚢 SEA DRAFTS</div>
                 <div id="drafts-sea-list"></div>
@@ -259,7 +810,7 @@
                         <option value="high">High (>15%)</option>
                         <option value="low">Low (<5%)</option>
                     </select>
-                    <button class="btn btn-clear" onclick="clearFilters('rates')" style="height:36px;">Clear</button>
+                    <button class="btn btn-clear" type="button" onclick="clearFilters('rates')" style="height:36px;">Clear</button>
                 </div>
                 <div class="section-heading highlight-sea">🚢 SEA RATES</div>
                 <div id="rates-sea-list"></div>
@@ -295,136 +846,92 @@
                     </div>
                 </div>
                 <div class="ratesheet-actions">
-                    <button class="btn btn-success" onclick="openRateSheetModal()">+ Add New Rate</button>
-                    <button class="btn btn-info" onclick="openBulkImportModal()">📥 Import from Excel</button>
-                    <button class="btn btn-warning" onclick="exportRateSheetReport('pdf')">📄 Export PDF Report</button>
-                    <button class="btn btn-export" onclick="exportRateSheetReport('excel')">📊 Export Excel</button>
-                    <button class="btn btn-clear" onclick="clearRateSheetFilter()">Clear Filter</button>
+                    <button class="btn btn-success" type="button" onclick="openRateSheetModal()">+ Add New Rate</button>
+                    <button class="btn btn-info" type="button" onclick="openBulkImportModal()">📥 Import from Excel</button>
+                    <button class="btn btn-warning" type="button" onclick="exportRateSheetReport('pdf')">📄 Export PDF Report</button>
+                    <button class="btn btn-export" type="button" onclick="exportRateSheetReport('excel')">📊 Export Excel</button>
+                    <button class="btn btn-clear" type="button" onclick="clearRateSheetFilter()">Clear Filter</button>
                 </div>
                 <div class="quick-filters">
-                    <button class="filter-btn active" data-filter="all" onclick="filterRateSheet('all')">All</button>
-                    <button class="filter-btn" data-filter="active" onclick="filterRateSheet('active')">Active</button>
-                    <button class="filter-btn" data-filter="expiring15" onclick="filterRateSheet('expiring15')">15 Days</button>
-                    <button class="filter-btn" data-filter="expiring7" onclick="filterRateSheet('expiring7')">7 Days</button>
-                    <button class="filter-btn" data-filter="today" onclick="filterRateSheet('today')">Today</button>
-                    <button class="filter-btn" data-filter="expired" onclick="filterRateSheet('expired')">Expired</button>
+                    <button class="filter-btn active" data-filter="all" type="button" onclick="filterRateSheet('all')">All</button>
+                    <button class="filter-btn" data-filter="active" type="button" onclick="filterRateSheet('active')">Active</button>
+                    <button class="filter-btn" data-filter="expiring15" type="button" onclick="filterRateSheet('expiring15')">15 Days</button>
+                    <button class="filter-btn" data-filter="expiring7" type="button" onclick="filterRateSheet('expiring7')">7 Days</button>
+                    <button class="filter-btn" data-filter="today" type="button" onclick="filterRateSheet('today')">Today</button>
+                    <button class="filter-btn" data-filter="expired" type="button" onclick="filterRateSheet('expired')">Expired</button>
                 </div>
                 <div class="table-wrap">
                     <table class="master-table" id="ratesheet-table">
-                        <thead><tr><th>Carrier</th><th>Type</th><th>POL</th><th>POD</th><th>Container</th><th>Amount</th><th>Currency</th><th>Transit</th><th>Valid From</th><th>Valid To</th><th>Days Left</th><th>Status</th><th>Actions</th></tr></thead>
+                        <thead><tr>
+                            <th>Carrier</th><th>Type</th><th>POL</th><th>POD</th><th>Container</th>
+                            <th>Amount</th><th>Currency</th><th>Transit</th>
+                            <th>Commodity</th>
+                            <th>Valid From</th><th>Valid To</th><th>Days Left</th><th>Status</th><th>Actions</th>
+                        </tr></thead>
                         <tbody id="ratesheet-body"></tbody>
                     </table>
                 </div>
                 <div class="pagination" id="ratesheet-pagination"></div>
             </div>
 
-            <!-- ===== LOCAL CHARGES ===== -->
-            <div class="tab-panel" id="localcharges">
-                <div class="tab-heading"><h2>📦 Local Charges Management</h2></div>
-                <div class="db-section">
-                    <div class="db-header">📥 Import Rate Sheet from Excel</div>
-                    <div class="db-body">
-                        <p style="font-size:0.78rem;color:var(--text-light);margin-bottom:8px;">Upload carrier rate sheet. Expected columns: <strong>Carrier, POL, Charge Type, Amount, Currency</strong> (case-insensitive, flexible matching)</p>
-                        <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                            <button class="btn btn-import" onclick="document.getElementById('rate-import-file').click()">📥 Import Rate Sheet</button>
-                            <input type="file" id="rate-import-file" accept=".xlsx,.xls,.csv" style="display:none;" onchange="importRateSheet(this)">
+            <!-- ===== DSR (ENHANCED) ===== -->
+            <div class="tab-panel" id="dsr">
+                <div class="tab-heading">
+                    <h2>🚢 Shipment List (DSR)</h2>
+                    <div class="add-shipment-wrapper">
+                        <button class="btn btn-success" type="button" id="addShipmentBtn" onclick="toggleAddShipmentDropdown()">+ Add Shipment ▼</button>
+                        <div class="add-shipment-dropdown" id="addShipmentDropdown">
+                            <div class="dropdown-item" onclick="openSeaDsrModal()">
+                                <span class="icon">🚢</span> SEA Shipment
+                            </div>
+                            <div class="dropdown-item" onclick="openAirDsrModal()">
+                                <span class="icon">✈️</span> AIR Shipment
+                            </div>
                         </div>
-                        <div class="rate-import-preview" id="rate-import-preview" style="display:none;"></div>
                     </div>
                 </div>
-                <div class="db-section">
-                    <div class="db-header">📋 Bulk Import from Excel (Copy-Paste)</div>
-                    <div class="db-body">
-                        <p style="font-size:0.78rem;color:var(--text-light);margin-bottom:8px;">Copy data from Excel and paste below. Each row = one record. Columns separated by TAB.</p>
-                        <div class="form-group" style="margin-bottom:10px;">
-                            <label>Select Import Type</label>
-                            <select id="bulk-import-type" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                                <option value="pol">POL (Port of Loading)</option>
-                                <option value="pod">POD (Port of Discharge)</option>
-                                <option value="carrier">Carrier Charges</option>
-                            </select>
-                        </div>
-                        <div class="form-group" style="margin-bottom:10px;">
-                            <label>Paste Excel Data Here</label>
-                            <textarea id="bulk-import-data" rows="8" placeholder="Paste your Excel data here..." style="font-family:monospace;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></textarea>
-                        </div>
-                        <button class="btn btn-success" onclick="bulkImport()">📥 Import Data</button>
-                        <p style="font-size:0.75rem;color:var(--text-light);margin-top:8px;" id="bulk-import-status"></p>
-                    </div>
+                <div class="filter-row">
+                    <input type="text" id="dsr-search" class="search-box" placeholder="🔍 Search Quote / Shipper / POL / POD..." oninput="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" />
+                    <select id="dsr-type-filter" onchange="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                        <option value="">All Types</option>
+                        <option value="SEA">🚢 SEA</option>
+                        <option value="AIR">✈️ AIR</option>
+                    </select>
+                    <select id="dsr-status-filter" onchange="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                        <option value="">All Status</option>
+                        <option value="Booked">Booked</option>
+                        <option value="Confirmed">Confirmed</option>
+                        <option value="In Transit">In Transit</option>
+                        <option value="Delivered">Delivered</option>
+                        <option value="Cancelled">Cancelled</option>
+                    </select>
+                    <select id="dsr-sort" onchange="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                        <option value="date-desc">Date ↓</option>
+                        <option value="date-asc">Date ↑</option>
+                        <option value="code">Quote Code</option>
+                        <option value="shipper">Shipper</option>
+                        <option value="pol">POL</option>
+                        <option value="pod">POD</option>
+                    </select>
+                    <select id="dsr-per-page" onchange="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                        <option value="25">25 / page</option>
+                        <option value="50">50 / page</option>
+                        <option value="100">100 / page</option>
+                        <option value="0">All</option>
+                    </select>
+                    <button class="btn btn-clear" type="button" onclick="clearDSRFilters()" style="height:36px;">Clear</button>
                 </div>
-                <div class="db-section" style="margin-top:14px;">
-                    <div class="db-header">📦 Default Charges – Sea (Carrier + POL + Container)</div>
-                    <div class="db-body">
-                        <div class="filter-row">
-                            <input type="text" id="dc-sea-search" class="search-box" placeholder="🔍 Search..." oninput="renderDefaultChargesMaster('sea')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                            <select id="dc-sea-filter-carrier" onchange="renderDefaultChargesMaster('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All Carriers</option></select>
-                            <select id="dc-sea-filter-pol" onchange="renderDefaultChargesMaster('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All POLs</option></select>
-                            <button class="btn btn-quoted" onclick="openAddDefaultChargeModal('sea')">+ Add</button>
-                        </div>
-                        <div class="table-wrap" id="dc-sea-master-table"></div>
-                    </div>
-                </div>
-                <div class="db-section" style="margin-top:14px;">
-                    <div class="db-header">✈️ Default Charges – Air (POL only)</div>
-                    <div class="db-body">
-                        <div class="filter-row">
-                            <input type="text" id="dc-air-search" class="search-box" placeholder="🔍 Search..." oninput="renderDefaultChargesMaster('air')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                            <select id="dc-air-filter-pol" onchange="renderDefaultChargesMaster('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All POLs</option></select>
-                            <button class="btn btn-quoted" onclick="openAddDefaultChargeModal('air')">+ Add</button>
-                        </div>
-                        <div class="table-wrap" id="dc-air-master-table"></div>
-                    </div>
-                </div>
-                <div class="db-section" style="margin-top:14px;">
-                    <div class="db-header">📦 Default Charges – LCL (POL only)</div>
-                    <div class="db-body">
-                        <div class="filter-row">
-                            <input type="text" id="dc-lcl-search" class="search-box" placeholder="🔍 Search..." oninput="renderDefaultChargesMaster('lcl')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                            <select id="dc-lcl-filter-pol" onchange="renderDefaultChargesMaster('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All POLs</option></select>
-                            <button class="btn btn-quoted" onclick="openAddDefaultChargeModal('lcl')">+ Add</button>
-                        </div>
-                        <div class="table-wrap" id="dc-lcl-master-table"></div>
-                    </div>
-                </div>
-                <div class="db-section" style="margin-top:14px;">
-                    <div class="db-header">⚙️ Carrier-Wise Custom Charges – Sea / LCL</div>
-                    <div class="db-body">
-                        <div class="filter-row">
-                            <input type="text" id="cc-sealcl-search" class="search-box" placeholder="🔍 Search..." oninput="renderCarrierChargesMaster('sealcl')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                            <select id="cc-sealcl-filter-mode" onchange="renderCarrierChargesMaster('sealcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All Modes</option><option value="sea">SEA</option><option value="lcl">LCL</option></select>
-                            <button class="btn btn-quoted" onclick="openAddCarrierChargeModal('sealcl')">+ Add</button>
-                        </div>
-                        <div class="table-wrap" id="cc-sealcl-master-table"></div>
-                    </div>
-                </div>
-                <div class="db-section" style="margin-top:14px;">
-                    <div class="db-header">⚙️ Carrier-Wise Custom Charges – Air</div>
-                    <div class="db-body">
-                        <div class="filter-row">
-                            <input type="text" id="cc-air-search" class="search-box" placeholder="🔍 Search..." oninput="renderCarrierChargesMaster('air')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                            <button class="btn btn-quoted" onclick="openAddCarrierChargeModal('air')">+ Add</button>
-                        </div>
-                        <div class="table-wrap" id="cc-air-master-table"></div>
-                    </div>
-                </div>
+                <div id="dsr-list"></div>
+                <div id="dsr-pagination" class="pagination"></div>
             </div>
 
-            <!-- ===== FOLLOW-UPS ===== -->
-            <div class="tab-panel" id="followup">
-                <div class="tab-heading"><h2>📅 Follow-ups</h2></div>
-                <div class="counters" id="followup-counters"></div>
-                <div class="filter-row">
-                    <select id="followup-filter-status" onchange="renderFollowups()" style="flex:1;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                        <option value="">All Status</option>
-                        <option value="PENDING">Pending</option>
-                        <option value="SENT">Sent</option>
-                        <option value="FOLLOW-UP">Follow-up</option>
-                        <option value="WON">Won</option>
-                        <option value="LOST">Lost</option>
-                    </select>
-                    <button class="btn btn-clear" onclick="document.getElementById('followup-filter-status').value='';renderFollowups()" style="height:36px;">Clear</button>
+            <!-- ===== BL DRAFT ===== -->
+            <div class="tab-panel" id="bldraft">
+                <div class="tab-heading">
+                    <h2>📄 Bill of Lading Drafts</h2>
+                    <button class="btn btn-success" type="button" onclick="openBLModal()">+ New BL Draft</button>
                 </div>
-                <div id="followup-list"></div>
+                <div id="bldraft-list"></div>
             </div>
 
             <!-- ===== DASHBOARD ===== -->
@@ -479,32 +986,32 @@
                         </table>
                     </div>
                     <div style="margin-top:10px;">
-                        <button class="btn btn-success" onclick="addContainerDimension()">+ Add New Container</button>
-                        <button class="btn btn-quoted" onclick="saveContainerDimensions()">💾 Save All</button>
+                        <button class="btn btn-success" type="button" onclick="addContainerDimension()">+ Add New Container</button>
+                        <button class="btn btn-quoted" type="button" onclick="saveContainerDimensions()">💾 Save All</button>
                     </div>
                 </div>
                 <div class="form-section">
                     <h3>4️⃣ Calculator</h3>
                     <div style="max-width:300px;margin:0 auto;">
-                        <input type="text" id="calc-display" readonly style="width:100%;padding:15px;font-size:1.5rem;text-align:right;background:#f1f5f9;border:2px solid var(--border);border-radius:8px;margin-bottom:10px;">
+                        <input type="text" id="calc-display" readonly style="width:100%;padding:15px;font-size:1.5rem;text-align:right;background:#f1f5f9;border:2px solid var(--border);border-radius:8px;margin-bottom:10px;" autofocus>
                         <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;">
-                            <button class="btn btn-clear" onclick="calcInput('7')">7</button>
-                            <button class="btn btn-clear" onclick="calcInput('8')">8</button>
-                            <button class="btn btn-clear" onclick="calcInput('9')">9</button>
-                            <button class="btn btn-warning" onclick="calcInput('/')">÷</button>
-                            <button class="btn btn-clear" onclick="calcInput('4')">4</button>
-                            <button class="btn btn-clear" onclick="calcInput('5')">5</button>
-                            <button class="btn btn-clear" onclick="calcInput('6')">6</button>
-                            <button class="btn btn-warning" onclick="calcInput('*')">×</button>
-                            <button class="btn btn-clear" onclick="calcInput('1')">1</button>
-                            <button class="btn btn-clear" onclick="calcInput('2')">2</button>
-                            <button class="btn btn-clear" onclick="calcInput('3')">3</button>
-                            <button class="btn btn-warning" onclick="calcInput('-')">−</button>
-                            <button class="btn btn-clear" onclick="calcInput('0')">0</button>
-                            <button class="btn btn-clear" onclick="calcInput('.')">.</button>
-                            <button class="btn btn-success" onclick="calcEquals()">=</button>
-                            <button class="btn btn-warning" onclick="calcInput('+')">+</button>
-                            <button class="btn btn-clear" onclick="calcClear()" style="grid-column:1/-1;">CLEAR</button>
+                            <button class="btn btn-clear" type="button" onclick="calcInput('7')">7</button>
+                            <button class="btn btn-clear" type="button" onclick="calcInput('8')">8</button>
+                            <button class="btn btn-clear" type="button" onclick="calcInput('9')">9</button>
+                            <button class="btn btn-warning" type="button" onclick="calcInput('/')">÷</button>
+                            <button class="btn btn-clear" type="button" onclick="calcInput('4')">4</button>
+                            <button class="btn btn-clear" type="button" onclick="calcInput('5')">5</button>
+                            <button class="btn btn-clear" type="button" onclick="calcInput('6')">6</button>
+                            <button class="btn btn-warning" type="button" onclick="calcInput('*')">×</button>
+                            <button class="btn btn-clear" type="button" onclick="calcInput('1')">1</button>
+                            <button class="btn btn-clear" type="button" onclick="calcInput('2')">2</button>
+                            <button class="btn btn-clear" type="button" onclick="calcInput('3')">3</button>
+                            <button class="btn btn-warning" type="button" onclick="calcInput('-')">−</button>
+                            <button class="btn btn-clear" type="button" onclick="calcInput('0')">0</button>
+                            <button class="btn btn-clear" type="button" onclick="calcInput('.')">.</button>
+                            <button class="btn btn-success" type="button" onclick="calcEquals()">=</button>
+                            <button class="btn btn-warning" type="button" onclick="calcInput('+')">+</button>
+                            <button class="btn btn-clear" type="button" onclick="calcClear()" style="grid-column:1/-1;">CLEAR</button>
                         </div>
                     </div>
                 </div>
@@ -521,7 +1028,7 @@
                             <div class="form-group" style="grid-column:1/-1;"><label>Company Name</label><input type="text" id="company-name" placeholder="Enter Company Name" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
                             <div class="form-group" style="grid-column:1/-1;"><label>Company Address</label><textarea id="company-address" rows="3" placeholder="Enter Full Address" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></textarea></div>
                         </div>
-                        <button class="btn btn-quoted" onclick="saveCompanyInfo()" style="margin-top:10px;">Save Company Info</button>
+                        <button class="btn btn-quoted" type="button" onclick="saveCompanyInfo()" style="margin-top:10px;">Save Company Info</button>
                         <p style="font-size:0.78rem;color:var(--text-light);margin-top:8px;">Current Company: <strong id="current-company-name">Not Set</strong></p>
                     </div>
                 </div>
@@ -531,7 +1038,7 @@
                     <div class="db-body">
                         <div class="add-row">
                             <input type="text" id="default-user-input" placeholder="Enter Default User Name" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                            <button class="btn btn-sm btn-quoted" onclick="saveDefaultUser()">Save</button>
+                            <button class="btn btn-sm btn-quoted" type="button" onclick="saveDefaultUser()">Save</button>
                         </div>
                         <p style="font-size:0.78rem;color:var(--text-light);margin-top:4px;">Current: <strong id="current-default-user">Not Set</strong></p>
                     </div>
@@ -541,12 +1048,14 @@
                     <div class="db-header">💾 Data Backup & Restore</div>
                     <div class="db-body">
                         <div style="display:flex;gap:10px;flex-wrap:wrap;">
-                            <button class="btn btn-export" onclick="exportToExcel()">📊 Export to Excel</button>
-                            <button class="btn btn-export" onclick="exportToJSON()">💾 Export to JSON</button>
-                            <button class="btn btn-import" onclick="document.getElementById('import-file').click()">📤 Import Backup</button>
-                            <input type="file" id="import-file" accept=".json,.xlsx" style="display:none;" onchange="importData(this)">
-                            <button class="btn btn-info" onclick="autoBackup()">💾 Auto Backup Now</button>
-                            <button class="btn btn-info" onclick="selectBackupFolder()">📁 Select Backup Folder</button>
+                            <button class="btn btn-export" type="button" onclick="exportToExcel()">📊 Export to Excel</button>
+                            <button class="btn btn-export" type="button" onclick="exportToSQLite()">💾 Export to SQLite</button>
+                            <button class="btn btn-import" type="button" onclick="document.getElementById('import-file-sqlite').click()">📤 Import SQLite</button>
+                            <input type="file" id="import-file-sqlite" accept=".sqlite" style="display:none;" onchange="importFromSQLite(this)">
+                            <button class="btn btn-import" type="button" onclick="document.getElementById('import-file-json').click()">📤 Import JSON</button>
+                            <input type="file" id="import-file-json" accept=".json" style="display:none;" onchange="importData(this)">
+                            <button class="btn btn-info" type="button" onclick="autoBackup()">💾 Auto Backup Now</button>
+                            <button class="btn btn-info" type="button" onclick="selectBackupFolder()">📁 Select Backup Folder</button>
                             <span id="backup-folder-path" style="font-size:0.8rem;color:var(--text-light);margin-left:8px;"></span>
                         </div>
                         <div class="backup-status" id="backup-status">Last backup: Never</div>
@@ -562,21 +1071,23 @@
                         <div class="add-row">
                             <input type="text" id="new-currency" placeholder="Currency Code" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
                             <input type="number" id="new-rate" placeholder="Rate" step="0.0001" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                            <button class="btn btn-sm btn-quoted" onclick="addExchangeRate()">Add</button>
+                            <button class="btn btn-sm btn-quoted" type="button" onclick="addExchangeRate()">Add</button>
                         </div>
                         <table class="master-table" id="exchange-table"></table>
                     </div>
                 </div>
-                <!-- Master Data Management (includes Carrier now) -->
+                <!-- Master Data Management -->
                 <div class="db-section">
                     <div class="db-header">📋 Master Data Management</div>
                     <div class="db-body">
                         <div class="master-tabs">
-                            <button class="master-tab active" data-master="pol" onclick="switchMasterTab('pol')">POL</button>
-                            <button class="master-tab" data-master="pod" onclick="switchMasterTab('pod')">POD</button>
-                            <button class="master-tab" data-master="incoterms" onclick="switchMasterTab('incoterms')">Incoterms</button>
-                            <button class="master-tab" data-master="containers" onclick="switchMasterTab('containers')">Containers</button>
-                            <button class="master-tab" data-master="carriers" onclick="switchMasterTab('carriers')">Carriers</button>
+                            <button class="master-tab active" data-master="pol" type="button" onclick="switchMasterTab('pol')">POL</button>
+                            <button class="master-tab" data-master="pod" type="button" onclick="switchMasterTab('pod')">POD</button>
+                            <button class="master-tab" data-master="incoterms" type="button" onclick="switchMasterTab('incoterms')">Incoterms</button>
+                            <button class="master-tab" data-master="containers" type="button" onclick="switchMasterTab('containers')">Containers</button>
+                            <button class="master-tab" data-master="carriers" type="button" onclick="switchMasterTab('carriers')">Carriers</button>
+                            <button class="master-tab" data-master="cargostatus" onclick="switchMasterTab('cargostatus')">📦 Cargo Status</button>
+                            <button class="master-tab" data-master="docsstatus" onclick="switchMasterTab('docsstatus')">📄 Docs Status</button>
                         </div>
                         <div class="master-controls">
                             <input type="text" id="master-search" class="search-box" placeholder="🔍 Search..." oninput="renderMasterData()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
@@ -596,30 +1107,150 @@
                                 <option value="100">100 per page</option>
                             </select>
                         </div>
-                        <!-- Add multiple items -->
                         <div class="add-master-row" style="flex-wrap:wrap;">
                             <textarea id="new-master-items" rows="2" placeholder="Enter one or more items (period or newline separated)" style="flex:3;min-width:200px;padding:8px 10px;border:1px solid var(--border);border-radius:6px;font-size:0.85rem;background:var(--card-bg);color:var(--text);" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></textarea>
-                            <button class="btn btn-success" onclick="addMultipleMasterItems()" style="height:auto;align-self:stretch;">+ Add Multiple</button>
+                            <button class="btn btn-success" type="button" onclick="addMultipleMasterItems()" style="height:auto;align-self:stretch;">+ Add Multiple</button>
                         </div>
                         <div class="master-list" id="master-list"></div>
                         <div class="pagination" id="master-pagination"></div>
                         <div class="add-master-row" style="margin-top:8px;">
                             <input type="text" id="new-master-item" placeholder="Or add single item" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                            <button class="btn btn-success" onclick="addMasterItem()">+ Add</button>
+                            <button class="btn btn-success" type="button" onclick="addMasterItem()">+ Add</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- ===== USER MANAGEMENT (Added) ===== -->
+                <div class="db-section" id="admin-user-management">
+                    <div class="db-header">👥 User Management <span style="font-weight:400;font-size:0.75rem;background:rgba(255,255,255,0.2);padding:2px 10px;border-radius:12px;">Master Only</span></div>
+                    <div class="db-body">
+                        <div style="display:flex;justify-content:space-between;margin-bottom:12px;">
+                            <span style="font-size:0.8rem;color:var(--text-light);">Manage system users and their permissions.</span>
+                            <button class="btn btn-success btn-sm" onclick="openAddUserModal()">+ Add New User</button>
+                        </div>
+                        <div class="table-wrap" style="max-height:400px;">
+                            <table class="master-table" id="user-table">
+                                <thead>
+                                    <tr>
+                                        <th>ID</th>
+                                        <th>Name</th>
+                                        <th>Role</th>
+                                        <th>Permissions</th>
+                                        <th>Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody id="user-table-body"></tbody>
+                            </table>
+                        </div>
+                    </div>
+                </div>
+                <!-- ===== END USER MANAGEMENT ===== -->
+
+            </div> <!-- end database tab -->
+
+            <!-- ===== SEA LOCAL CHARGES (ADMIN) ===== -->
+            <div class="tab-panel" id="sealocal">
+                <div class="tab-heading"><h2>🚢 Sea Local Charges</h2></div>
+                <div id="sealocal-content">
+                    <!-- Default Charges -->
+                    <div class="db-section">
+                        <div class="db-header">📋 Default Charges</div>
+                        <div class="db-body">
+                            <div class="filter-row">
+                                <input type="text" id="dc-sea-search" class="search-box" placeholder="🔍 Search..." oninput="renderDefaultChargesMaster('sea')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                                <select id="dc-sea-filter-carrier" onchange="renderDefaultChargesMaster('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All Carriers</option></select>
+                                <select id="dc-sea-filter-pol" onchange="renderDefaultChargesMaster('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All POLs</option></select>
+                                <button class="btn btn-quoted" type="button" onclick="openAddDefaultChargeModal('sea')">+ Add</button>
+                            </div>
+                            <div class="table-wrap" id="dc-sea-master-table"></div>
+                        </div>
+                    </div>
+                    <!-- Carrier Charges -->
+                    <div class="db-section">
+                        <div class="db-header">🚢 Carrier-Specific Charges</div>
+                        <div class="db-body">
+                            <div class="filter-row">
+                                <input type="text" id="cc-sealcl-search" class="search-box" placeholder="🔍 Search Carrier / POL..." oninput="renderCarrierChargesMaster('sealcl')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                                <select id="cc-sealcl-filter-mode" onchange="renderCarrierChargesMaster('sealcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All Modes</option><option value="sea">SEA</option><option value="lcl">LCL</option></select>
+                                <button class="btn btn-quoted" type="button" onclick="openAddCarrierChargeModal('sealcl')">+ Add</button>
+                            </div>
+                            <div class="table-wrap" id="cc-sealcl-master-table"></div>
                         </div>
                     </div>
                 </div>
             </div>
-        </div>
-    </div>
 
-    <!-- ===== MODALS ===== -->
+            <!-- ===== AIR LOCAL CHARGES (ADMIN) ===== -->
+            <div class="tab-panel" id="airlocal">
+                <div class="tab-heading"><h2>✈️ Air Local Charges</h2></div>
+                <div id="airlocal-content">
+                    <!-- Default Charges -->
+                    <div class="db-section">
+                        <div class="db-header">📋 Default Charges</div>
+                        <div class="db-body">
+                            <div class="filter-row">
+                                <input type="text" id="dc-air-search" class="search-box" placeholder="🔍 Search..." oninput="renderDefaultChargesMaster('air')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                                <select id="dc-air-filter-pol" onchange="renderDefaultChargesMaster('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All POLs</option></select>
+                                <button class="btn btn-quoted" type="button" onclick="openAddDefaultChargeModal('air')">+ Add</button>
+                            </div>
+                            <div class="table-wrap" id="dc-air-master-table"></div>
+                        </div>
+                    </div>
+                    <!-- Carrier Charges -->
+                    <div class="db-section">
+                        <div class="db-header">✈️ Carrier-Specific Charges</div>
+                        <div class="db-body">
+                            <div class="filter-row">
+                                <input type="text" id="cc-air-search" class="search-box" placeholder="🔍 Search Carrier / POL..." oninput="renderCarrierChargesMaster('air')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                                <button class="btn btn-quoted" type="button" onclick="openAddCarrierChargeModal('air')">+ Add</button>
+                            </div>
+                            <div class="table-wrap" id="cc-air-master-table"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- ===== LCL LOCAL CHARGES (ADMIN) ===== -->
+            <div class="tab-panel" id="lcllocal">
+                <div class="tab-heading"><h2>📦 LCL Local Charges</h2></div>
+                <div id="lcllocal-content">
+                    <!-- Default Charges -->
+                    <div class="db-section">
+                        <div class="db-header">📋 Default Charges</div>
+                        <div class="db-body">
+                            <div class="filter-row">
+                                <input type="text" id="dc-lcl-search" class="search-box" placeholder="🔍 Search..." oninput="renderDefaultChargesMaster('lcl')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                                <select id="dc-lcl-filter-pol" onchange="renderDefaultChargesMaster('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All POLs</option></select>
+                                <button class="btn btn-quoted" type="button" onclick="openAddDefaultChargeModal('lcl')">+ Add</button>
+                            </div>
+                            <div class="table-wrap" id="dc-lcl-master-table"></div>
+                        </div>
+                    </div>
+                    <!-- Carrier Charges -->
+                    <div class="db-section">
+                        <div class="db-header">📦 Carrier-Specific Charges</div>
+                        <div class="db-body">
+                            <div class="filter-row">
+                                <input type="text" id="cc-lcl-search" class="search-box" placeholder="🔍 Search Carrier / POL..." oninput="renderCarrierChargesMaster('lcl')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                                <button class="btn btn-quoted" type="button" onclick="openAddCarrierChargeModal('lcl')">+ Add</button>
+                            </div>
+                            <div class="table-wrap" id="cc-lcl-master-table"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+        </div> <!-- end content-area -->
+    </div> <!-- end app-wrapper -->
+
+    <!-- ===== EXISTING MODALS (unchanged) ===== -->
     <div class="modal" id="previewModal">
-        <div class="modal-content">
-            <div class="modal-header"><span style="font-weight:600;" id="modal-title">Quotation Preview</span><span class="close-modal" onclick="closeModal('previewModal')">&times;</span></div>
+        <div class="modal-content" style="max-width:1000px;">
+            <div class="modal-header"><span style="font-weight:600;" id="modal-title">Preview</span><span class="close-modal" onclick="closeModal('previewModal')" aria-label="Close preview">&times;</span></div>
             <div class="modal-body" id="previewBody"></div>
         </div>
     </div>
+
     <div class="modal" id="deleteModal">
         <div class="delete-modal-content">
             <div class="delete-modal-body">
@@ -640,15 +1271,16 @@
                     </select>
                 </div>
                 <div class="delete-modal-actions">
-                    <button class="btn btn-clear" id="deleteConfirmBtn">Yes, Delete</button>
-                    <button class="btn btn-quoted" onclick="closeModal('deleteModal')">Cancel</button>
+                    <button class="btn btn-clear" type="button" id="deleteConfirmBtn">Yes, Delete</button>
+                    <button class="btn btn-quoted" type="button" onclick="closeModal('deleteModal')">Cancel</button>
                 </div>
             </div>
         </div>
     </div>
+
     <div class="modal" id="addChargeModal">
         <div class="modal-content" style="max-width:500px;">
-            <div class="modal-header"><span style="font-weight:600;" id="addChargeTitle">Add New Charge</span><span class="close-modal" onclick="closeModal('addChargeModal')">&times;</span></div>
+            <div class="modal-header"><span style="font-weight:600;" id="addChargeTitle">Add New Charge</span><span class="close-modal" onclick="closeModal('addChargeModal')" aria-label="Close">&times;</span></div>
             <div class="modal-body">
                 <div class="form-grid-2col">
                     <div class="form-group" style="grid-column:1/-1;"><label>Charge Name</label><input type="text" id="new-charge-name" placeholder="e.g., HANDLING" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
@@ -658,34 +1290,37 @@
                     <div class="form-group"><label>Buy Currency</label><select id="new-charge-buy-cur" style="color:var(--buy-red);" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></select></div>
                 </div>
                 <div style="margin-top:16px;text-align:right;display:flex;gap:8px;justify-content:flex-end;">
-                    <button class="btn btn-clear" onclick="closeModal('addChargeModal')">Cancel</button>
-                    <button class="btn btn-success" id="addChargeSaveBtn">Add</button>
+                    <button class="btn btn-clear" type="button" onclick="closeModal('addChargeModal')">Cancel</button>
+                    <button class="btn btn-success" type="button" id="addChargeSaveBtn">Add</button>
                 </div>
             </div>
         </div>
     </div>
+
     <div class="modal" id="copyModal">
         <div class="modal-content" style="max-width:700px;">
-            <div class="modal-header"><span style="font-weight:600;">📋 Copy Quote Data</span><span class="close-modal" onclick="closeModal('copyModal')">&times;</span></div>
+            <div class="modal-header"><span style="font-weight:600;">📋 Copy Quote Data</span><span class="close-modal" onclick="closeModal('copyModal')" aria-label="Close">&times;</span></div>
             <div class="modal-body">
                 <p style="margin-bottom:10px;color:var(--text-light);">Copy the following data for your records:</p>
                 <textarea id="copyContent" rows="20" style="width:100%;padding:10px;border:1px solid var(--border);border-radius:4px;font-family:monospace;font-size:0.85rem;background:var(--bg);color:var(--text);" readonly></textarea>
                 <div style="margin-top:12px;text-align:right;">
-                    <button class="btn btn-info" onclick="copyToClipboard()">📋 Copy to Clipboard</button>
-                    <button class="btn btn-clear" onclick="closeModal('copyModal')">Close</button>
+                    <button class="btn btn-info" type="button" onclick="copyToClipboard()">📋 Copy to Clipboard</button>
+                    <button class="btn btn-clear" type="button" onclick="closeModal('copyModal')">Close</button>
                 </div>
             </div>
         </div>
     </div>
+
     <div class="modal" id="autoRateModal">
         <div class="modal-content" style="max-width:700px;">
-            <div class="modal-header"><span style="font-weight:600;">📊 Matching Rates Found</span><span class="close-modal" onclick="closeModal('autoRateModal')">&times;</span></div>
+            <div class="modal-header"><span style="font-weight:600;">📊 Matching Rates Found</span><span class="close-modal" onclick="closeModal('autoRateModal')" aria-label="Close">&times;</span></div>
             <div class="modal-body" id="autoRateBody"></div>
         </div>
     </div>
+
     <div class="modal" id="emailModal">
         <div class="modal-content" style="max-width:550px;">
-            <div class="modal-header"><span style="font-weight:600;">📧 Email Quotation</span><span class="close-modal" onclick="closeModal('emailModal')">&times;</span></div>
+            <div class="modal-header"><span style="font-weight:600;">📧 Email Quotation</span><span class="close-modal" onclick="closeModal('emailModal')" aria-label="Close">&times;</span></div>
             <div class="modal-body">
                 <div style="display:flex;flex-direction:column;gap:10px;">
                     <div class="form-group"><label>To</label><input type="email" id="email-to" placeholder="client@example.com" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
@@ -693,17 +1328,18 @@
                     <div class="form-group"><label>Subject</label><input type="text" id="email-subject" readonly style="background:#f1f5f9;font-weight:600;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
                     <div class="form-group"><label>HTML Body (preview)</label><div id="email-html-preview" style="border:1px solid var(--border);padding:10px;border-radius:4px;max-height:300px;overflow:auto;background:white;color:#333;font-family:Arial;font-size:14px;"></div></div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                        <button class="btn btn-info" onclick="copyEmailHTML()">📋 Copy HTML to Clipboard</button>
-                        <button class="btn btn-email" onclick="sendEmail()">📤 Download HTML & Open Email</button>
+                        <button class="btn btn-info" type="button" onclick="copyEmailHTML()">📋 Copy HTML to Clipboard</button>
+                        <button class="btn btn-email" type="button" onclick="sendEmail()">📤 Download HTML & Open Email</button>
                     </div>
                     <p style="font-size:0.75rem;color:var(--text-light);background:#fef3c7;padding:8px;border-radius:4px;">ℹ️ Copy the HTML, then paste it into your email client's HTML editor (or attach the downloaded file).</p>
                     <div style="text-align:right;display:flex;gap:8px;justify-content:flex-end;">
-                        <button class="btn btn-clear" onclick="closeModal('emailModal')">Cancel</button>
+                        <button class="btn btn-clear" type="button" onclick="closeModal('emailModal')">Cancel</button>
                     </div>
                 </div>
             </div>
         </div>
     </div>
+
     <div class="modal" id="tabSwitchModal">
         <div class="delete-modal-content">
             <div class="delete-modal-body">
@@ -711,19 +1347,22 @@
                 <h3>Unsaved Changes</h3>
                 <p>You have unsaved data. Do you want to save before switching tabs?</p>
                 <div class="delete-modal-actions">
-                    <button class="btn btn-save" id="tabSwitchSaveBtn">💾 Save</button>
-                    <button class="btn btn-clear" id="tabSwitchDiscardBtn">🗑️ Discard</button>
-                    <button class="btn btn-quoted" onclick="closeModal('tabSwitchModal')">Cancel</button>
+                    <button class="btn btn-save" type="button" id="tabSwitchSaveBtn">💾 Save</button>
+                    <button class="btn btn-clear" type="button" id="tabSwitchDiscardBtn">🗑️ Discard</button>
+                    <button class="btn btn-quoted" type="button" onclick="closeModal('tabSwitchModal')">Cancel</button>
                 </div>
             </div>
         </div>
     </div>
+
     <div class="modal" id="rateSheetModal">
         <div class="modal-content" style="max-width:700px;">
-            <div class="modal-header"><span style="font-weight:600;" id="rateSheetModalTitle">Add New Rate</span><span class="close-modal" onclick="closeModal('rateSheetModal')">&times;</span></div>
+            <div class="modal-header"><span style="font-weight:600;" id="rateSheetModalTitle">Add New Rate</span><span class="close-modal" onclick="closeModal('rateSheetModal')" aria-label="Close">&times;</span></div>
             <div class="modal-body">
                 <div class="form-grid-2col">
-                    <div class="form-group"><label>Carrier Name *</label><input type="text" id="rs-carrier" placeholder="Enter carrier name" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                    <div class="form-group"><label>Carrier *</label>
+                        <select id="rs-carrier" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select Carrier</option></select>
+                    </div>
                     <div class="form-group"><label>Freight Type *</label><select id="rs-freightType" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="SEA">SEA</option><option value="AIR">AIR</option><option value="LCL">LCL</option></select></div>
                     <div class="form-group"><label>POL *</label><select id="rs-pol" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select POL</option></select></div>
                     <div class="form-group"><label>POD *</label><select id="rs-pod" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select POD</option></select></div>
@@ -731,46 +1370,112 @@
                     <div class="form-group"><label>Currency</label><select id="rs-currency" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></select></div>
                     <div class="form-group"><label>Freight Amount *</label><input type="number" id="rs-amount" step="0.01" placeholder="Enter amount" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
                     <div class="form-group"><label>Transit Time</label><input type="text" id="rs-transit" placeholder="e.g., 25-30 days" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                    <div class="form-group"><label>Commodity</label>
+                        <select id="rs-commodity" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                            <option value="">Select Commodity</option>
+                            <option value="NON HAZ">Non Hazardous</option>
+                            <option value="HAZ">Hazardous</option>
+                        </select>
+                    </div>
                     <div class="form-group"><label>Valid From *</label><input type="date" id="rs-validFrom" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
                     <div class="form-group"><label>Valid To *</label><input type="date" id="rs-validTo" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
                     <div class="form-group" style="grid-column:1/-1;"><label>Remarks</label><textarea id="rs-remarks" rows="2" placeholder="Optional remarks" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></textarea></div>
                 </div>
                 <div style="margin-top:16px;text-align:right;display:flex;gap:8px;justify-content:flex-end;">
-                    <button class="btn btn-clear" onclick="closeModal('rateSheetModal')">Cancel</button>
-                    <button class="btn btn-success" id="rateSheetSaveBtn">💾 Save Rate</button>
+                    <button class="btn btn-clear" type="button" onclick="closeModal('rateSheetModal')">Cancel</button>
+                    <button class="btn btn-success" type="button" id="rateSheetSaveBtn">💾 Save Rate</button>
                 </div>
             </div>
         </div>
     </div>
+
     <div class="modal" id="bulkImportModal">
         <div class="modal-content" style="max-width:700px;">
-            <div class="modal-header"><span style="font-weight:600;">📥 Bulk Import Rates from Excel</span><span class="close-modal" onclick="closeModal('bulkImportModal')">&times;</span></div>
+            <div class="modal-header"><span style="font-weight:600;">📥 Bulk Import Rates from Excel</span><span class="close-modal" onclick="closeModal('bulkImportModal')" aria-label="Close">&times;</span></div>
             <div class="modal-body">
                 <p style="font-size:0.85rem;color:var(--text-light);margin-bottom:12px;">
                     Copy data from Excel and paste below. Each row = one rate record.<br>
-                    <strong>Columns (TAB separated):</strong> Carrier | Freight Type | POL | POD | Container | Currency | Amount | Transit | Valid From | Valid To | Remarks
+                    <strong>Columns (TAB separated):</strong> Carrier | Freight Type | POL | POD | Container | Currency | Amount | Transit | Commodity | Valid From | Valid To | Remarks
                 </p>
                 <div class="form-group" style="margin-bottom:10px;">
                     <label>Paste Excel Data Here</label>
-                    <textarea id="bulk-rates-data" rows="12" placeholder="Maersk	SEA	NHAVA SHEVA, IN	Rotterdam	40 HC	INR	85000	25-30 days	2026-01-01	2026-03-31	Standard rate" style="font-family:monospace;font-size:0.8rem;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></textarea>
+                    <textarea id="bulk-rates-data" rows="12" placeholder="Maersk	SEA	NHAVA SHEVA, IN	Rotterdam	40 HC	USD	85000	25-30 days	NON HAZ	2026-01-01	2026-03-31	Standard rate" style="font-family:monospace;font-size:0.8rem;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></textarea>
                 </div>
                 <div style="text-align:right;display:flex;gap:8px;justify-content:flex-end;">
-                    <button class="btn btn-clear" onclick="closeModal('bulkImportModal')">Cancel</button>
-                    <button class="btn btn-success" onclick="processBulkRateImport()">📥 Import Rates</button>
+                    <button class="btn btn-clear" type="button" onclick="closeModal('bulkImportModal')">Cancel</button>
+                    <button class="btn btn-success" type="button" onclick="processBulkRateImport()">📥 Import Rates</button>
                 </div>
                 <p style="font-size:0.75rem;color:var(--text-light);margin-top:8px;" id="bulk-import-rates-status"></p>
             </div>
         </div>
     </div>
+
     <div class="modal" id="renewModal">
         <div class="modal-content" style="max-width:700px;">
-            <div class="modal-header"><span style="font-weight:600;">🔄 Renew Rate</span><span class="close-modal" onclick="closeModal('renewModal')">&times;</span></div>
+            <div class="modal-header"><span style="font-weight:600;">🔄 Renew Rate</span><span class="close-modal" onclick="closeModal('renewModal')" aria-label="Close">&times;</span></div>
             <div class="modal-body" id="renewBody"></div>
+        </div>
+    </div>
+
+    <!-- ===== EXISTING DSR MODAL (kept for backward compatibility) ===== -->
+    <div class="modal" id="dsrModal">
+        <div class="modal-content" style="max-width:1000px;">
+            <div class="modal-header"><span id="dsrModalTitle">Add Shipment</span><span class="close-modal" onclick="closeModal('dsrModal')" aria-label="Close">&times;</span></div>
+            <div class="modal-body" id="dsrModalBody"></div>
+        </div>
+    </div>
+
+    <!-- ===== NEW SEA DSR POPUP ===== -->
+    <div class="modal dsr-popup-modal" id="seaDsrModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>SEA Shipment ~ DSR</span>
+                <span class="close-modal" onclick="closeModal('seaDsrModal')" aria-label="Close">&times;</span>
+            </div>
+            <div class="modal-body" id="seaDsrBody"></div>
+        </div>
+    </div>
+
+    <!-- ===== NEW AIR DSR POPUP ===== -->
+    <div class="modal dsr-popup-modal air" id="airDsrModal">
+        <div class="modal-content">
+            <div class="modal-header">
+                <span>AIR - DSR</span>
+                <span class="close-modal" onclick="closeModal('airDsrModal')" aria-label="Close">&times;</span>
+            </div>
+            <div class="modal-body" id="airDsrBody"></div>
+        </div>
+    </div>
+
+    <!-- ===== BL DRAFT MODAL ===== -->
+    <div class="modal" id="blModal">
+        <div class="modal-content" style="max-width:1000px;">
+            <div class="modal-header"><span id="blModalTitle">Bill of Lading Draft</span><span class="close-modal" onclick="closeModal('blModal')" aria-label="Close">&times;</span></div>
+            <div class="modal-body" id="blModalBody"></div>
         </div>
     </div>
 
     <div id="pdf-render-area"></div>
     <div class="shortcut-hint" id="shortcutHint"></div>
+
+    <!-- ===== LOGIN OVERLAY ===== -->
+    <div id="login-overlay">
+        <div class="login-box">
+            <div class="login-header">🚢 Gateway EXIM</div>
+            <div class="login-form">
+                <div class="form-group" style="margin-bottom:12px;">
+                    <label>User ID</label>
+                    <input type="text" id="login-id" placeholder="Enter User ID" onkeydown="if(event.key==='Enter') performLogin()">
+                </div>
+                <div class="form-group" style="margin-bottom:16px;">
+                    <label>Password</label>
+                    <input type="password" id="login-password" placeholder="Enter Password" onkeydown="if(event.key==='Enter') performLogin()">
+                </div>
+                <button class="btn btn-quoted" onclick="performLogin()" style="width:100%;">🔐 Login</button>
+                <div id="login-error" style="color:var(--danger);margin-top:10px;font-size:0.85rem;display:none;">Invalid credentials</div>
+            </div>
+        </div>
+    </div>
 
     <script src="script.js"></script>
 </body>
