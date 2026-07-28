@@ -2,12 +2,12 @@
 // COMPLETE JAVASCRIPT – Gateway EXIM Freight Quotation System
 // ========================================================================
 // CRITICAL FIXES APPLIED:
-// - Login System & User Management
-// - Commodity support for Default Charges
-// - PDF generation (html2canvas scale 3, landscape, centered)
-// - Preview/PDF with company letterhead at top, boxed layout, unit amounts
-// - DSR Design Mode (drag-and-drop reorder)
-// - Logged-in user used as Salesperson
+// - Login System & User Management (password preservation on edit)
+// - Removed duplicate measurement calculator code
+// - Removed renderContainerDimensions call from switchToTab
+// - Added US Import Duty calculator (new tab)
+// - Added Measurement Defaults (Database) and auto-population
+// - Dual-currency output for Product Pricing & US Duty
 // ========================================================================
 
 // ==================== DATA DEFINITIONS ====================
@@ -73,7 +73,7 @@ const defaultDB = {
     companyName: "GATEWAY EXIM",
     companyAddress: "OFFICE NO.523, TOWER 1A, 73, EAST AVENUE, NR. GENDA CIRCLE, SARA BHAI CAMPUS, VADODARA, GUJARAT 390007 - INDIA",
     defaultUser: "Shaikh Shahid",
-    exchangeRates: { USD: 83.50, GBP: 105.20, RMB: 11.50, EUR: 90.10, AED: 22.75, INR: 1.00 },
+    exchangeRates: { USD: 94.50, GBP: 105.20, RMB: 11.50, EUR: 90.10, AED: 22.75, INR: 1.00 },
     defaultSeaCharges: [],
     defaultAirCharges: [],
     defaultLclCharges: [],
@@ -91,7 +91,22 @@ const defaultDB = {
     bldrafts: [],
     cargoStatusMaster: ["Booked", "Confirmed", "In Transit", "Delivered", "Cancelled"],
     docsStatusMaster: ["Pending", "In Progress", "Ready", "Sent", "Received"],
-    users: []  // ADDED: user management
+    users: [],
+    // --- NEW: Measurement Defaults ---
+    defaults: {
+        gst: 18,
+        insurance: 0.05,
+        profitMargin: 15,
+        defaultCurrency: 'USD',
+        usDuty: 0, // Duty % for US
+        usTariff: 0, // Tariff % for US
+        usMPF: 0.3464,
+        usHMF: 0.125,
+        inDuty: 7.5,
+        inSocialWelfare: 10,
+        drawback: 0,
+        rodtep: 0
+    }
 };
 
 // ==================== DATABASE INIT ====================
@@ -139,8 +154,7 @@ if (!db.shipments) db.shipments = [];
 if (!db.bldrafts) db.bldrafts = [];
 if (!db.cargoStatusMaster) db.cargoStatusMaster = ["Booked", "Confirmed", "In Transit", "Delivered", "Cancelled"];
 if (!db.docsStatusMaster) db.docsStatusMaster = ["Pending", "In Progress", "Ready", "Sent", "Received"];
-
-// Ensure users array and master user
+// Ensure users and defaults
 if (!db.users) db.users = [];
 if (!db.users.find(u => u.id === 'Shaikh Shahid')) {
     db.users.push({
@@ -150,6 +164,9 @@ if (!db.users.find(u => u.id === 'Shaikh Shahid')) {
         role: 'master',
         permissions: 'all'
     });
+}
+if (!db.defaults) {
+    db.defaults = JSON.parse(JSON.stringify(defaultDB.defaults));
 }
 saveDB();
 
@@ -177,7 +194,7 @@ let SQL = null;
 let currentLocalContainer = null;
 let sqliteLoadAttempts = 0;
 const MAX_SQLITE_ATTEMPTS = 10;
-let dsrDesignMode = false; // For DSR drag-and-drop
+let dsrDesignMode = false;
 
 // ==================== DATABASE OPERATIONS ====================
 function saveDB() {
@@ -262,7 +279,31 @@ function switchToTab(targetTab) {
     if (targetTab === 'followup') renderFollowups();
     if (targetTab === 'dashboard') renderDashboard();
     if (targetTab === 'database') renderDatabase();
-    if (targetTab === 'measurement') { renderContainerDimensions(); document.getElementById('calc-display')?.focus(); }
+    if (targetTab === 'measurement') {
+        showMeasurementMenu();
+        refreshMeasurementDefaults();
+        const activeCalc = document.querySelector('.calc-panel.active');
+        if (activeCalc) {
+            const id = activeCalc.id.replace('calc-', '');
+            if (id === 'duty') calcDuty();
+            else if (id === 'product') calcProduct();
+            else if (id === 'insurance') calcInsurance();
+            else if (id === 'us-duty') calcUSDuty();
+        }
+        setTimeout(populateOOGContainerDropdown, 200);
+        setTimeout(renderOOGContainerTable, 300);
+        setTimeout(populateDetentionLotDropdown, 200);
+        setTimeout(populateFreightDropdowns, 200);
+        setTimeout(renderFreightChargeRows, 300);
+        setTimeout(renderFreightRecords, 400);
+        setTimeout(renderDetentionLots, 250);
+        setTimeout(renderDetentionRecords, 300);
+        const validFromInput = document.getElementById('fr-valid-from');
+        if (validFromInput && !validFromInput.value) {
+            validFromInput.valueAsDate = new Date();
+        }
+    }
+
     if (['sea', 'air', 'lcl'].includes(targetTab)) {
         populateDropdowns();
     }
@@ -507,7 +548,7 @@ function buildChargesGrid(mode, savedCharges = {}, customOrder = null) {
                         <span class="charge-name"><span class="charge-name-wrap"><span>${charge}</span></span></span>
                         <input type="text" step="0.01" class="sell-amt" id="${mode}-amt-${safe}" value="${data.amount||''}" placeholder="${placeholder}" oninput="recalcCharge('${mode}','${charge}')" onblur="evaluateFormula(this,'${mode}','${charge}')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
                         <select class="sell-cur" id="${mode}-cur-${safe}" onchange="recalcCharge('${mode}','${charge}')">${curOpts}</select>
-                        <input type="number" step="0.01" class="buy-input" id="${mode}-buyAmt-${safe}" value="${data.buyAmount||''}" placeholder="0.00" oninput="recalcCharge('${mode}','${charge}')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                        <input type="text" step="0.01" class="buy-input" id="${mode}-buyAmt-${safe}" value="${data.buyAmount||''}" placeholder="0.00" oninput="recalcCharge('${mode}','${charge}')" onfocus="highlightInput(this)" onblur="evaluateFormula(this,'${mode}','${charge}')">
                         <select class="buy-select" id="${mode}-buyCur-${safe}" onchange="recalcCharge('${mode}','${charge}')">${buyCurOpts}</select>
                         <span class="charge-inr" id="${mode}-inr-${safe}">—</span>
                         <span class="charge-buy-inr" id="${mode}-buyInr-${safe}">—</span>
@@ -768,7 +809,6 @@ document.getElementById('deleteConfirmBtn').addEventListener('click', function()
 });
 
 function deleteRecord(target, mode, idx) {
-    // Ensure the record exists at the given index
     if (!db[target] || !db[target][mode] || idx < 0 || idx >= db[target][mode].length) {
         alert('Record not found. Please refresh and try again.');
         return;
@@ -776,7 +816,6 @@ function deleteRecord(target, mode, idx) {
     const rec = db[target][mode][idx];
     showDeleteConfirm(`Delete quotation?<br><br><strong>${rec.client||'?'}</strong> (${rec.pol||'?'} → ${rec.pod||'?'})<br>${rec.quoteNumber||''}`, function() {
         try {
-            // Re-fetch the record by index to ensure we still have the correct one
             if (idx < db[target][mode].length) {
                 const recToDelete = db[target][mode][idx];
                 db[target][mode].splice(idx, 1);
@@ -804,7 +843,6 @@ function onCarrierPolChangeInternal(mode) {
 
     if (!carrier || !pol) { buildChargesGrid(mode); return; }
     let finalCharges = {};
-    // 1. Load carrier-specific charges
     if (mode === 'sea') {
         let custMatch = db.carrierChargesSeaLcl.find(c => c.mode === mode && c.carrier === carrier && c.pol === pol && (c.container || '') === container);
         if (custMatch) Object.assign(finalCharges, custMatch.charges);
@@ -815,7 +853,6 @@ function onCarrierPolChangeInternal(mode) {
         let custMatch = db.carrierChargesSeaLcl.find(c => c.mode === mode && c.carrier === carrier && c.pol === pol);
         if (custMatch) Object.assign(finalCharges, custMatch.charges);
     }
-    // 2. Load "ALL" charges (if carrier is not ALL, merge ALL charges)
     if (carrier !== 'ALL') {
         let allCharges = {};
         if (mode === 'sea') {
@@ -828,14 +865,12 @@ function onCarrierPolChangeInternal(mode) {
             let allMatch = db.defaultLclCharges.find(d => d.pol === pol && d.commodity === commodity);
             if (allMatch) Object.assign(allCharges, allMatch.charges);
         }
-        // Merge, but carrier-specific charges take precedence (do not overwrite)
         Object.entries(allCharges).forEach(([key, val]) => {
             if (!finalCharges[key]) {
                 finalCharges[key] = val;
             }
         });
     }
-    // 3. Load default charges for the specific carrier (if any)
     if (mode === 'sea') {
         let defMatch = db.defaultSeaCharges.find(d => d.carrier === carrier && d.pol === pol && d.container === container && d.commodity === commodity);
         if (defMatch) {
@@ -928,7 +963,7 @@ function applyAutoRate(idx, mode) {
 function getFormData(mode) {
     const data = { mode: mode.toUpperCase(), timestamp: new Date().toISOString(), lastModified: new Date().toISOString() };
     data.autoDate = new Date().toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' });
-    data.sales = getLoggedInUserName() || db.defaultUser || 'N/A'; // ADDED
+    data.sales = getLoggedInUserName() || db.defaultUser || 'N/A';
     const fields = ['client', 'carrier', 'pol', 'pod', 'incoterm', 'commodity', 'weight', 'transit', 'validityDate'];
     if (mode === 'sea') fields.push('container');
     if (mode === 'air' || mode === 'lcl') fields.push('volume');
@@ -1001,7 +1036,7 @@ function saveRecord(mode, target, status = 'DRAFT') {
     if (target === 'drafts') renderRecords('drafts');
     if (target === 'rates') renderRecords('rates');
     renderFollowups();
-    autoBackup(); // Trigger backup after save
+    autoBackup();
 }
 
 function updateRateSheetFromQuote(data, mode) {
@@ -1220,7 +1255,6 @@ function renderRecords(target) {
         }).join('');
     });
 }
-
 // ==================== FOLLOW-UPS ====================
 function renderFollowups() {
     const filterStatus = document.getElementById('followup-filter-status')?.value || '';
@@ -1381,25 +1415,19 @@ document.addEventListener('DOMContentLoaded', function() {
             const key = e.key;
             if (/^[0-9]$/.test(key)) {
                 calcInput(key);
-            }
-            else if (['+', '-', '*', '/'].includes(key)) {
+            } else if (['+', '-', '*', '/'].includes(key)) {
                 calcInput(key);
-            }
-            else if (key === '.') {
+            } else if (key === '.') {
                 calcInput('.');
-            }
-            else if (key === 'Enter') {
+            } else if (key === 'Enter') {
                 calcEquals();
-            }
-            else if (key === 'Backspace') {
+            } else if (key === 'Backspace') {
                 const current = document.getElementById('calc-display').value;
                 document.getElementById('calc-display').value = current.slice(0, -1);
                 calcExpression = document.getElementById('calc-display').value;
-            }
-            else if (key === 'Delete' || key === 'Escape') {
+            } else if (key === 'Delete' || key === 'Escape') {
                 calcClear();
-            }
-            else if (key === 'Tab') {
+            } else if (key === 'Tab') {
                 return;
             }
         });
@@ -1407,36 +1435,29 @@ document.addEventListener('DOMContentLoaded', function() {
     }
 });
 
-function renderContainerDimensions() {
-    const tbody = document.getElementById('container-dimensions-body');
-    if (!tbody) return;
-    tbody.innerHTML = db.containerDimensions.map((c, idx) => `
-        <tr>
-            <td><input type="text" value="${c.type}" onchange="updateContainerDim(${idx},'type',this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:3px;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></td>
-            <td><input type="text" value="${c.length}" onchange="updateContainerDim(${idx},'length',this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:3px;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></td>
-            <td><input type="text" value="${c.width}" onchange="updateContainerDim(${idx},'width',this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:3px;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></td>
-            <td><input type="text" value="${c.height}" onchange="updateContainerDim(${idx},'height',this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:3px;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></td>
-            <td><input type="text" value="${c.maxWeight}" onchange="updateContainerDim(${idx},'maxWeight',this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:3px;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></td>
-            <td><input type="text" value="${c.cbm}" onchange="updateContainerDim(${idx},'cbm',this.value)" style="width:100%;padding:4px 6px;border:1px solid var(--border);border-radius:3px;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></td>
-            <td><button class="btn btn-sm btn-clear" onclick="deleteContainerDim(${idx})">×</button></td>
-        </tr>
-    `).join('');
-}
-function updateContainerDim(idx, field, value) { db.containerDimensions[idx][field] = value; }
-function saveContainerDimensions() { saveDB(); alert('Container dimensions saved successfully!'); }
-function addContainerDimension() { db.containerDimensions.push({ type: "NEW", length: "", width: "", height: "", maxWeight: "", cbm: "" }); renderContainerDimensions(); }
-function deleteContainerDim(idx) { if (confirm('Delete this container?')) { db.containerDimensions.splice(idx, 1); renderContainerDimensions(); } }
-
 let calcExpression = '';
 function calcInput(val) { calcExpression += val; document.getElementById('calc-display').value = calcExpression; }
 function calcClear() { calcExpression = ''; document.getElementById('calc-display').value = ''; }
 function calcEquals() { try { const result = eval(calcExpression); document.getElementById('calc-display').value = result; calcExpression = String(result); } catch (e) { document.getElementById('calc-display').value = 'Error'; calcExpression = ''; } }
 
+
+document.querySelectorAll('#calc-stuffing input[type="number"]').forEach(input => {
+    input.addEventListener('input', function() {
+        document.querySelectorAll('#stuffing-table-body .stuffing-departure').forEach(depInput => {
+            if (depInput.value) {
+                updateStuffingDates(depInput);
+            }
+        });
+    });
+});
+
 // ==================== RATE SHEET MANAGEMENT ====================
 function getExpiryStatus(validTo) {
     if (!validTo) return { status: 'unknown', days: null, color: 'gray' };
-    const today = new Date(); today.setHours(0,0,0,0);
-    const valid = new Date(validTo); valid.setHours(0,0,0,0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    const valid = new Date(validTo);
+    valid.setHours(0, 0, 0, 0);
     const daysRemaining = Math.ceil((valid - today) / (1000 * 60 * 60 * 24));
     if (daysRemaining < 0) return { status: 'expired', days: daysRemaining, color: 'red' };
     if (daysRemaining <= 7) return { status: 'critical', days: daysRemaining, color: 'red' };
@@ -1445,12 +1466,16 @@ function getExpiryStatus(validTo) {
 }
 function updateExpiryDashboard() {
     const rates = db.rateSheet || [];
-    let active = 0, expiring30 = 0, expiring7 = 0, expired = 0;
+    let active = 0,
+        expiring30 = 0,
+        expiring7 = 0,
+        expired = 0;
     rates.forEach(r => {
         const expiry = getExpiryStatus(r.validTo);
         if (expiry.status === 'active') active++;
-        else if (expiry.status === 'expiring') { expiring30++; if (expiry.days <= 7) expiring7++; }
-        else if (expiry.status === 'expired' || expiry.status === 'critical') { expired++; if (expiry.days <= 7 && expiry.days >= 0) expiring7++; }
+        else if (expiry.status === 'expiring') { expiring30++;
+            if (expiry.days <= 7) expiring7++; } else if (expiry.status === 'expired' || expiry.status === 'critical') { expired++;
+            if (expiry.days <= 7 && expiry.days >= 0) expiring7++; }
     });
     document.getElementById('expiry-active-count').textContent = active;
     document.getElementById('expiry-30-count').textContent = expiring30;
@@ -1458,19 +1483,25 @@ function updateExpiryDashboard() {
     document.getElementById('expiry-expired-count').textContent = expired;
 }
 function filterRateSheet(filter) {
-    rateSheetFilter = filter; rateSheetPage = 1;
+    rateSheetFilter = filter;
+    rateSheetPage = 1;
     document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.filter === filter));
     renderRateSheet();
 }
-function clearRateSheetFilter() { rateSheetFilter = 'all'; rateSheetPage = 1; document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.filter === 'all')); renderRateSheet(); }
+function clearRateSheetFilter() { rateSheetFilter = 'all';
+    rateSheetPage = 1;
+    document.querySelectorAll('.filter-btn').forEach(btn => btn.classList.toggle('active', btn.dataset.filter === 'all'));
+    renderRateSheet(); }
 function getFilteredRateSheet() {
     let rates = [...(db.rateSheet || [])];
-    const today = new Date(); today.setHours(0,0,0,0);
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
     if (rateSheetFilter === 'active') rates = rates.filter(r => { const expiry = getExpiryStatus(r.validTo); return expiry.status === 'active'; });
     else if (rateSheetFilter === 'expiring30') rates = rates.filter(r => { const expiry = getExpiryStatus(r.validTo); return expiry.status === 'expiring'; });
     else if (rateSheetFilter === 'expiring15') rates = rates.filter(r => { const expiry = getExpiryStatus(r.validTo); return expiry.days !== null && expiry.days >= 0 && expiry.days <= 15; });
     else if (rateSheetFilter === 'expiring7') rates = rates.filter(r => { const expiry = getExpiryStatus(r.validTo); return expiry.days !== null && expiry.days >= 0 && expiry.days <= 7; });
-    else if (rateSheetFilter === 'today') rates = rates.filter(r => { const valid = new Date(r.validTo); valid.setHours(0,0,0,0); return valid.getTime() === today.getTime(); });
+    else if (rateSheetFilter === 'today') rates = rates.filter(r => { const valid = new Date(r.validTo);
+        valid.setHours(0, 0, 0, 0); return valid.getTime() === today.getTime(); });
     else if (rateSheetFilter === 'expired') rates = rates.filter(r => { const expiry = getExpiryStatus(r.validTo); return expiry.status === 'expired' || expiry.status === 'critical'; });
     return rates;
 }
@@ -1489,9 +1520,10 @@ function renderRateSheet() {
         const expiry = getExpiryStatus(r.validTo);
         const rowClass = expiry.status === 'active' ? 'row-active' : expiry.status === 'expiring' ? 'row-expiring' : 'row-expired';
         let statusClass, statusText;
-        if (expiry.status === 'expired') { statusClass = 'status-expired'; statusText = 'Expired'; }
-        else if (expiry.status === 'expiring') { statusClass = 'status-expiring'; statusText = `Expiring (${expiry.days}d)`; }
-        else { statusClass = 'status-active'; statusText = 'Active'; }
+        if (expiry.status === 'expired') { statusClass = 'status-expired';
+            statusText = 'Expired'; } else if (expiry.status === 'expiring') { statusClass = 'status-expiring';
+            statusText = `Expiring (${expiry.days}d)`; } else { statusClass = 'status-active';
+            statusText = 'Active'; }
         return `<tr class="${rowClass}">
             <td>${r.carrierName || '-'}</td><td>${r.freightType || '-'}</td><td>${r.pol || '-'}</td><td>${r.pod || '-'}</td>
             <td>${r.containerType || '-'}</td><td>${Number(r.freightAmount || 0).toLocaleString('en-IN')}</td>
@@ -1516,11 +1548,13 @@ function renderRateSheet() {
     pagHtml += `<button class="page-btn" onclick="changeRateSheetPage(${rateSheetPage + 1})" ${rateSheetPage === totalPages ? 'disabled' : ''}>Next ›</button>`;
     pagination.innerHTML = pagHtml;
 }
-function changeRateSheetPage(page) { const filtered = getFilteredRateSheet(); const totalPages = Math.ceil(filtered.length / rateSheetPerPage) || 1; if (page < 1 || page > totalPages) return; rateSheetPage = page; renderRateSheet(); }
+function changeRateSheetPage(page) { const filtered = getFilteredRateSheet();
+    const totalPages = Math.ceil(filtered.length / rateSheetPerPage) || 1; if (page < 1 || page > totalPages) return;
+    rateSheetPage = page;
+    renderRateSheet(); }
 function openRateSheetModal(editIdx = null) {
     const modal = document.getElementById('rateSheetModal');
     const title = document.getElementById('rateSheetModalTitle');
-    // Populate all dropdowns with master data (preserve JSON order, no sorting)
     const visibleCarriers = ['ALL', ...db.carriers.filter(c => !(db.hiddenItems.carriers || []).includes(c))];
     const carrierSelect = document.getElementById('rs-carrier');
     carrierSelect.innerHTML = '<option value="">Select Carrier</option>' + visibleCarriers.map(c => `<option value="${c}">${c}</option>`).join('');
@@ -1713,9 +1747,11 @@ function openBulkImportModal() {
 function processBulkRateImport() {
     const data = document.getElementById('bulk-rates-data').value.trim();
     const statusEl = document.getElementById('bulk-import-rates-status');
-    if (!data) { statusEl.textContent = '❌ Please paste some data'; statusEl.style.color = 'var(--danger)'; return; }
+    if (!data) { statusEl.textContent = '❌ Please paste some data';
+        statusEl.style.color = 'var(--danger)'; return; }
     const lines = data.split('\n').filter(l => l.trim());
-    let imported = 0, skipped = 0;
+    let imported = 0,
+        skipped = 0;
     lines.forEach(line => {
         const parts = line.split('\t');
         if (parts.length >= 10) {
@@ -1746,7 +1782,9 @@ function processBulkRateImport() {
     statusEl.textContent = `✅ Imported ${imported} rates, ⏭️ Skipped ${skipped}`;
     statusEl.style.color = 'var(--success)';
     document.getElementById('bulk-rates-data').value = '';
-    setTimeout(() => { closeModal('bulkImportModal'); renderRateSheet(); updateExpiryDashboard(); }, 1500);
+    setTimeout(() => { closeModal('bulkImportModal');
+        renderRateSheet();
+        updateExpiryDashboard(); }, 1500);
     autoBackup();
 }
 function exportRateSheetReport(format) {
@@ -1755,11 +1793,19 @@ function exportRateSheetReport(format) {
     if (format === 'excel') {
         const wb = XLSX.utils.book_new();
         const wsData = filtered.map(r => ({
-            'Carrier': r.carrierName, 'Freight Type': r.freightType, 'POL': r.pol, 'POD': r.pod,
-            'Container': r.containerType, 'Amount': r.freightAmount, 'Currency': r.currency,
-            'Transit': r.transitTime, 'Commodity': r.commodity,
-            'Valid From': r.validFrom, 'Valid To': r.validTo,
-            'Days Remaining': getExpiryStatus(r.validTo).days, 'Status': getExpiryStatus(r.validTo).status,
+            'Carrier': r.carrierName,
+            'Freight Type': r.freightType,
+            'POL': r.pol,
+            'POD': r.pod,
+            'Container': r.containerType,
+            'Amount': r.freightAmount,
+            'Currency': r.currency,
+            'Transit': r.transitTime,
+            'Commodity': r.commodity,
+            'Valid From': r.validFrom,
+            'Valid To': r.validTo,
+            'Days Remaining': getExpiryStatus(r.validTo).days,
+            'Status': getExpiryStatus(r.validTo).status,
             'Remarks': r.remarks
         }));
         const ws = XLSX.utils.json_to_sheet(wsData);
@@ -1767,7 +1813,7 @@ function exportRateSheetReport(format) {
         XLSX.writeFile(wb, `RateSheet_Report_${new Date().toISOString().split('T')[0]}.xlsx`);
     } else if (format === 'pdf') {
         const { jsPDF } = window.jspdf;
-        const doc = new jsPDF({ orientation: 'landscape', unit: 'mm', format: 'a4' });
+        const doc = new jsPDF({ orientation: 'portrait', unit: 'mm', format: 'a4' });
         doc.setFontSize(16);
         doc.text('Rate Sheet Expiry Report', 14, 15);
         doc.setFontSize(10);
@@ -1783,7 +1829,9 @@ function exportRateSheetReport(format) {
         ]);
         doc.autoTable({
             startY: 32,
-            head: [['Carrier', 'Type', 'POL', 'POD', 'Container', 'Amount', 'Transit', 'Commodity', 'Valid From', 'Valid To', 'Days Left', 'Status']],
+            head: [
+                ['Carrier', 'Type', 'POL', 'POD', 'Container', 'Amount', 'Transit', 'Commodity', 'Valid From', 'Valid To', 'Days Left', 'Status']
+            ],
             body: tableData,
             styles: { fontSize: 8, cellPadding: 2 },
             headStyles: { fillColor: [30, 58, 138], textColor: 255 },
@@ -1813,14 +1861,12 @@ function saveLocalCharges(mode) {
     if (mode === 'air') {
         const idx = db.carrierChargesAir.findIndex(c => c.carrier === carrier && c.pol === pol);
         const entry = { carrier, pol, charges, updated: new Date().toISOString() };
-        if (idx >= 0) { if (confirm('Update existing charges for this carrier?')) { db.carrierChargesAir[idx] = entry; } else return; }
-        else { db.carrierChargesAir.push(entry); }
+        if (idx >= 0) { if (confirm('Update existing charges for this carrier?')) { db.carrierChargesAir[idx] = entry; } else return; } else { db.carrierChargesAir.push(entry); }
     } else {
         const key = { mode, carrier, pol, container };
         const idx = db.carrierChargesSeaLcl.findIndex(c => c.mode === mode && c.carrier === carrier && c.pol === pol && (c.container || '') === container);
         const entry = { ...key, charges, updated: new Date().toISOString() };
-        if (idx >= 0) { if (confirm('Update existing charges for this carrier?')) { db.carrierChargesSeaLcl[idx] = entry; } else return; }
-        else { db.carrierChargesSeaLcl.push(entry); }
+        if (idx >= 0) { if (confirm('Update existing charges for this carrier?')) { db.carrierChargesSeaLcl[idx] = entry; } else return; } else { db.carrierChargesSeaLcl.push(entry); }
     }
     saveDB();
     alert(`Local charges saved for ${carrier} - ${pol}!`);
@@ -1869,19 +1915,21 @@ function saveFreightRate(mode) {
     alert(`Freight rate saved to Rate Sheet!\n\nCarrier: ${carrier}\nRoute: ${pol} → ${pod}\nAmount: ${formatINR(freightAmount)}`);
     autoBackup();
 }
-
 // ==================== BULK IMPORT (POL/POD/CARRIER) ====================
 function bulkImport() {
     const type = document.getElementById('bulk-import-type').value;
     const data = document.getElementById('bulk-import-data').value.trim();
     const statusEl = document.getElementById('bulk-import-status');
-    if (!data) { statusEl.textContent = '❌ Please paste some data'; statusEl.style.color = 'var(--danger)'; return; }
+    if (!data) { statusEl.textContent = '❌ Please paste some data';
+        statusEl.style.color = 'var(--danger)'; return; }
     const lines = data.split('\n').filter(l => l.trim());
-    let imported = 0, skipped = 0;
+    let imported = 0,
+        skipped = 0;
     if (type === 'pol' || type === 'pod') {
         lines.forEach(line => {
             const val = line.trim().toUpperCase();
-            if (val && !db[type].includes(val)) { db[type].push(val); imported++; } else { skipped++; }
+            if (val && !db[type].includes(val)) { db[type].push(val);
+                imported++; } else { skipped++; }
         });
     } else if (type === 'carrier') {
         lines.forEach(line => {
@@ -1899,10 +1947,12 @@ function bulkImport() {
                     let entry;
                     if (isAir) {
                         entry = db[listKey].find(c => c.carrier === carrier && c.pol === pol);
-                        if (!entry) { entry = { carrier, pol, charges: {}, updated: new Date().toISOString() }; db[listKey].push(entry); }
+                        if (!entry) { entry = { carrier, pol, charges: {}, updated: new Date().toISOString() };
+                            db[listKey].push(entry); }
                     } else {
                         entry = db[listKey].find(c => c.mode === mode && c.carrier === carrier && c.pol === pol);
-                        if (!entry) { entry = { mode, carrier, pol, container: '', charges: {}, updated: new Date().toISOString() }; db[listKey].push(entry); }
+                        if (!entry) { entry = { mode, carrier, pol, container: '', charges: {}, updated: new Date().toISOString() };
+                            db[listKey].push(entry); }
                     }
                     entry.charges[chargeType] = { amount, currency };
                     imported++;
@@ -1931,12 +1981,12 @@ async function selectBackupFolder() {
             alert('Your browser does not support folder selection. Please use the Export buttons to save manually.');
         }
     } catch (e) {
-        if (e.name !== 'AbortError') { console.error(e); alert('Folder selection failed: ' + e.message); }
+        if (e.name !== 'AbortError') { console.error(e);
+            alert('Folder selection failed: ' + e.message); }
     }
 }
 function startAutoBackup() {
     if (autoBackupInterval) { clearInterval(autoBackupInterval); }
-    // Auto backup every 1 minute (60000 ms)
     autoBackupInterval = setInterval(() => {
         if (backupFolderHandle) { autoBackupToFolder(); } else {
             document.getElementById('auto-backup-status').textContent = '⚠️ No folder selected';
@@ -1946,6 +1996,13 @@ function startAutoBackup() {
 }
 async function autoBackupToFolder() {
     try {
+        if (!backupFolderHandle) {
+            throw new Error('No folder selected');
+        }
+        const permission = await backupFolderHandle.requestPermission({ mode: 'readwrite' });
+        if (permission !== 'granted') {
+            throw new Error('Permission denied to write to folder');
+        }
         const backupData = { timestamp: new Date().toISOString(), data: db };
         const json = JSON.stringify(backupData, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
@@ -1960,41 +2017,48 @@ async function autoBackupToFolder() {
         statusEl.textContent = `✅ Last backup: ${new Date().toLocaleString('en-IN')} (in ${backupFolderHandle.name})`;
         statusEl.className = 'backup-status success';
         console.log('Auto backup saved to folder:', fileName);
-    } catch (e) { console.error('Auto backup failed:', e); }
+    } catch (e) {
+        console.error('Folder backup failed, falling back to download:', e);
+        await fallbackBackupDownload();
+    }
 }
-async function autoBackup() {
+async function fallbackBackupDownload() {
     try {
         const backupData = { timestamp: new Date().toISOString(), data: db };
         const json = JSON.stringify(backupData, null, 2);
         const blob = new Blob([json], { type: 'application/json' });
-        const fileName = `Gateway_EXIM_AutoBackup_${new Date().toISOString().split('T')[0]}.json`;
-        if (backupFolderHandle) {
-            const fileHandle = await backupFolderHandle.getFileHandle(fileName, { create: true });
-            const writable = await fileHandle.createWritable();
-            await writable.write(blob);
-            await writable.close();
-            db.lastBackup = new Date().toISOString();
-            saveDB();
-            const statusEl = document.getElementById('backup-status');
-            statusEl.textContent = `✅ Last backup: ${new Date().toLocaleString('en-IN')} (in ${backupFolderHandle.name})`;
-            statusEl.className = 'backup-status success';
-            // No alert to avoid interrupting user
-        } else {
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url; a.download = fileName; a.click();
-            URL.revokeObjectURL(url);
-            db.lastBackup = new Date().toISOString();
-            saveDB();
-            const statusEl = document.getElementById('backup-status');
-            statusEl.textContent = `✅ Last backup: ${new Date().toLocaleString('en-IN')}`;
-            statusEl.className = 'backup-status success';
-        }
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Gateway_EXIM_AutoBackup_${new Date().toISOString().split('T')[0]}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+        db.lastBackup = new Date().toISOString();
+        saveDB();
+        const statusEl = document.getElementById('backup-status');
+        statusEl.textContent = `✅ Last backup: ${new Date().toLocaleString('en-IN')} (download fallback)`;
+        statusEl.className = 'backup-status success';
     } catch (e) {
+        console.error('Fallback download also failed:', e);
         const statusEl = document.getElementById('backup-status');
         statusEl.textContent = `❌ Backup failed: ${e.message}`;
         statusEl.className = 'backup-status error';
-        console.error('Backup failed:', e);
+    }
+}
+async function autoBackup() {
+    try {
+        if (backupFolderHandle) {
+            await autoBackupToFolder();
+        } else {
+            await fallbackBackupDownload();
+        }
+    } catch (e) {
+        console.error('Auto backup failed:', e);
+        const statusEl = document.getElementById('backup-status');
+        statusEl.textContent = `❌ Backup failed: ${e.message}`;
+        statusEl.className = 'backup-status error';
     }
 }
 
@@ -2002,10 +2066,17 @@ async function autoBackup() {
 function exportToExcel() {
     const wb = XLSX.utils.book_new();
     const sheets = {
-        'Sea Quotes': db.rates.sea, 'Air Quotes': db.rates.air, 'LCL Quotes': db.rates.lcl,
-        'Sea Drafts': db.drafts.sea, 'Air Drafts': db.drafts.air, 'LCL Drafts': db.drafts.lcl,
-        'Rate Sheet': db.rateSheet, 'Shipments': db.shipments, 'BL Drafts': db.bldrafts,
-        'POL': db.pol.map(p => ({ POL: p })), 'POD': db.pod.map(p => ({ POD: p })),
+        'Sea Quotes': db.rates.sea,
+        'Air Quotes': db.rates.air,
+        'LCL Quotes': db.rates.lcl,
+        'Sea Drafts': db.drafts.sea,
+        'Air Drafts': db.drafts.air,
+        'LCL Drafts': db.drafts.lcl,
+        'Rate Sheet': db.rateSheet,
+        'Shipments': db.shipments,
+        'BL Drafts': db.bldrafts,
+        'POL': db.pol.map(p => ({ POL: p })),
+        'POD': db.pod.map(p => ({ POD: p })),
         'Incoterms': db.incoterms.map(i => ({ Incoterm: i })),
         'Containers': db.containers.map(c => ({ Container: c })),
         'Carriers': db.carriers.map(c => ({ Carrier: c })),
@@ -2013,7 +2084,7 @@ function exportToExcel() {
     };
     Object.entries(sheets).forEach(([name, data]) => {
         const ws = XLSX.utils.json_to_sheet(data);
-        XLSX.utils.book_append_sheet(wb, ws, name.slice(0,31));
+        XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
     });
     XLSX.writeFile(wb, `Gateway_EXIM_Backup_${new Date().toISOString().split('T')[0]}.xlsx`);
     alert('Excel file downloaded successfully!');
@@ -2100,7 +2171,9 @@ function importRateSheet(input) {
 function confirmRateImport() {
     const data = window._rateSheetData;
     if (!data) return;
-    let imported = 0, skipped = 0, errors = [];
+    let imported = 0,
+        skipped = 0,
+        errors = [];
     data.forEach((row, i) => {
         try {
             let carrier = row.carrier || row.liner || row.shipping_line || row.name || row.shippingline || '';
@@ -2129,14 +2202,17 @@ function confirmRateImport() {
             let entry;
             if (mode === 'air') {
                 entry = db[listKey].find(c => c.carrier === carrier && c.pol === pol);
-                if (!entry) { entry = { carrier, pol, charges: {}, updated: new Date().toISOString() }; db[listKey].push(entry); }
+                if (!entry) { entry = { carrier, pol, charges: {}, updated: new Date().toISOString() };
+                    db[listKey].push(entry); }
             } else {
                 entry = db[listKey].find(c => c.mode === mode && c.carrier === carrier && c.pol === pol && (c.container || '') === container);
-                if (!entry) { entry = { mode, carrier, pol, container, charges: {}, updated: new Date().toISOString() }; db[listKey].push(entry); }
+                if (!entry) { entry = { mode, carrier, pol, container, charges: {}, updated: new Date().toISOString() };
+                    db[listKey].push(entry); }
             }
             entry.charges[chargeType] = { amount, currency };
             imported++;
-        } catch (err) { errors.push(`Row ${i+1}: ${err.message}`); skipped++; }
+        } catch (err) { errors.push(`Row ${i+1}: ${err.message}`);
+            skipped++; }
     });
     saveDB();
     let msg = `Import Complete!\n✅ Imported: ${imported} charges\n⏭️ Skipped: ${skipped} rows`;
@@ -2165,7 +2241,8 @@ function copyQuoteData(mode) {
     if (mode === 'sea') text += `Container: ${data.container || '-'}\n`;
     text += `Commodity: ${data.commodity || '-'}\n`;
     text += `Weight (KGS): ${data.weight || '-'}\n`;
-    if (mode === 'air') { text += `Volume (CBM): ${data.volume || '-'}\n`; text += `Pallets: ${data.pallets || '-'}\n`; }
+    if (mode === 'air') { text += `Volume (CBM): ${data.volume || '-'}\n`;
+        text += `Pallets: ${data.pallets || '-'}\n`; }
     if (mode === 'lcl') text += `Volume (CBM): ${data.volume || '-'}\n`;
     text += `Transit Time: ${data.transit ? data.transit + ' Days' : '-'}\n`;
     text += `Validity Date: ${data.validityDate || '-'}\n`;
@@ -2217,43 +2294,110 @@ function copyToClipboard() {
 // ==================== EMAIL FUNCTIONS ====================
 function buildEmailHTML(data, mode) {
     const modeLabel = { sea: 'SEA FREIGHT', air: 'AIR FREIGHT', lcl: 'LCL FREIGHT' }[mode];
-    // In email, we must apply basis multipliers to each charge to get correct INR
-    let totalSell = 0;
-    const rows = Object.entries(data.charges || {}).map(([name, c]) => {
-        let amount = c.amount;
-        if (mode === 'air' || mode === 'lcl') {
-            const basis = c.basis || 'Normal';
-            if (basis === 'Per KGS') amount *= (data.weight || 0);
-            else if (basis === 'Per CBM') amount *= (data.volume || 0);
-            else if (basis === 'Per KGS × 3') amount *= (data.weight || 0) * 3;
-        }
-        const inr = toINR(amount, c.currency);
-        totalSell += inr;
-        return `<tr><td>${name}</td><td>${c.amount}</td><td>${c.currency}</td><td>${formatINR(inr)}</td></tr>`;
-    }).join('');
+    const order = data.chargesOrder || getCurrentChargesOrder(mode);
+    const toUpper = (val) => val ? String(val).toUpperCase() : '-';
+    const { chargesWithINR, grandTotal } = calculateChargesWithINR(data, mode);
+    let chargeRowsHtml = '';
+    if (Object.keys(chargesWithINR).length > 0) {
+        Object.entries(order).forEach(([category, charges]) => {
+            if (charges.length === 0) return;
+            const catEntries = charges.filter(ch => chargesWithINR[ch]);
+            if (catEntries.length === 0) return;
+            chargeRowsHtml += `
+            <table width="100%" cellspacing="0" cellpadding="0" style="margin-top:12px;">
+                <tr><td style="background:#1e3a8a;color:white;padding:6px 10px;font-weight:bold;font-family:Arial;font-size:11px;">${category.toUpperCase()}</td></tr>
+            </table>
+            `;
+            chargeRowsHtml += `
+            <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;border:1px solid #d1d5db;font-family:Arial;font-size:11px;">
+                <thead>
+                    <tr style="background:#1e3a8a;color:white;">
+                        <th style="padding:5px;text-align:left;border-right:1px solid #d1d5db;">#</th>
+                        <th style="padding:5px;text-align:left;border-right:1px solid #d1d5db;">Charge Type</th>
+                        <th style="padding:5px;text-align:right;border-right:1px solid #d1d5db;">Sell Amt</th>
+                        <th style="padding:5px;text-align:left;border-right:1px solid #d1d5db;">Currency</th>
+                        <th style="padding:5px;text-align:right;border-right:1px solid #d1d5db;">INR Equivalent</th>
+                        <th style="padding:5px;text-align:left;">Basis</th>
+                    </tr>
+                </thead>
+                <tbody>`;
+            let catTotal = 0;
+            catEntries.forEach((ch, i) => {
+                const c = chargesWithINR[ch];
+                catTotal += c.sellINR;
+                const isFreight = ch.toUpperCase() === 'FREIGHT' || ch.toUpperCase() === 'AIR FREIGHT';
+                const rowStyle = isFreight ? 'background:#fee2e2;font-weight:bold;' : '';
+                chargeRowsHtml += `
+                <tr style="${rowStyle}">
+                    <td style="padding:5px;border-bottom:1px solid #d1d5db;border-right:1px solid #d1d5db;">${i+1}</td>
+                    <td style="padding:5px;border-bottom:1px solid #d1d5db;border-right:1px solid #d1d5db;">${ch.toUpperCase()}</td>
+                    <td style="padding:5px;border-bottom:1px solid #d1d5db;border-right:1px solid #d1d5db;text-align:right;">${Number(c.unitSellAmt).toLocaleString('en-IN')}</td>
+                    <td style="padding:5px;border-bottom:1px solid #d1d5db;border-right:1px solid #d1d5db;">${c.currency}</td>
+                    <td style="padding:5px;border-bottom:1px solid #d1d5db;border-right:1px solid #d1d5db;text-align:right;">${formatINR(c.sellINR)}</td>
+                    <td style="padding:5px;border-bottom:1px solid #d1d5db;">${c.basis}</td>
+                </tr>`;
+            });
+            chargeRowsHtml += `
+                <tr style="background:#f1f5f9;">
+                    <td colspan="5" style="padding:5px;text-align:right;border-bottom:1px solid #d1d5db;font-weight:bold;">Subtotal:</td>
+                    <td style="padding:5px;border-bottom:1px solid #d1d5db;font-weight:bold;">${formatINR(catTotal)}</td>
+                </tr>
+            </tbody></table>`;
+        });
+        chargeRowsHtml += `
+        <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-top:6px;">
+            <tr style="background:#10b981;color:white;font-weight:bold;">
+                <td style="padding:6px 10px;text-align:right;font-family:Arial;font-size:11px;">GRAND TOTAL (INR)</td>
+                <td style="padding:6px 10px;text-align:right;font-family:Arial;font-size:11px;">${formatINR(grandTotal)}</td>
+            </tr>
+        </table>`;
+    }
+    const detailRows = [
+        ['Client', toUpper(data.client), 'Quote Date', data.autoDate || '-'],
+        ['Carrier', toUpper(data.carrier), 'Incoterm', toUpper(data.incoterm)],
+        ['POL', toUpper(data.pol), 'POD', toUpper(data.pod)],
+        ['Commodity', toUpper(data.commodity), 'Weight (KGS)', data.weight || '-'],
+        [mode === 'sea' ? 'Container' : 'Volume (CBM)', mode === 'sea' ? toUpper(data.container) : (data.volume || '-'), 'Transit Time', data.transit ? data.transit + ' Days' : '-'],
+        ['Validity Date', data.validityDate ? new Date(data.validityDate).toLocaleDateString('en-IN') : '-', 'Status', toUpper(data.status)]
+    ];
+    let detailHtml = `<table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;font-family:Arial;font-size:11px;">
+        <tbody>`;
+    detailRows.forEach((row, idx) => {
+        const bgColor = idx % 2 === 0 ? '#f1f5f9' : 'white';
+        detailHtml += `
+        <tr style="background:${bgColor};">
+            <td style="padding:5px;border:1px solid #d1d5db;font-weight:bold;width:20%;">${row[0]}</td>
+            <td style="padding:5px;border:1px solid #d1d5db;width:30%;">${row[1]}</td>
+            <td style="padding:5px;border:1px solid #d1d5db;font-weight:bold;width:20%;">${row[2]}</td>
+            <td style="padding:5px;border:1px solid #d1d5db;width:30%;">${row[3]}</td>
+        </tr>`;
+    });
+    detailHtml += `</tbody></table>`;
+    const titleHtml = `
+    <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-bottom:12px;">
+        <tr>
+            <td style="font-size:18px;font-weight:bold;color:#1e3a8a;font-family:Arial;text-align:left;">${modeLabel} QUOTATION</td>
+            <td style="font-family:monospace;color:#d97706;font-weight:bold;font-size:12px;background:#fffbeb;padding:4px 10px;text-align:right;">Quote No: ${data.quoteNumber||'DRAFT'}</td>
+        </tr>
+    </table>`;
+    let remarksHtml = '';
+    if (data.remarks) {
+        remarksHtml = `
+        <table width="100%" cellspacing="0" cellpadding="0" style="border-collapse:collapse;margin-top:12px;">
+            <tr><td style="background:#1e3a8a;color:white;padding:4px 8px;font-weight:bold;font-family:Arial;font-size:11px;">Remarks</td></tr>
+            <tr><td style="border:1px solid #d1d5db;padding:8px;font-family:Arial;font-size:11px;">${data.remarks.toUpperCase()}</td></tr>
+        </table>`;
+    }
     return `<!DOCTYPE html>
-            <html><head><meta charset="UTF-8"><title>${modeLabel} Quotation</title></head>
-            <body style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:20px;background:#f9fafb;">
-            <div style="background:white;padding:20px;border-radius:8px;box-shadow:0 2px 8px rgba(0,0,0,0.1);">
-                <h2 style="color:#1e3a8a;border-bottom:2px solid #3b82f6;padding-bottom:10px;">${modeLabel} QUOTATION</h2>
-                <p><strong>Quote No:</strong> ${data.quoteNumber || 'DRAFT'}</p>
-                <p><strong>Date:</strong> ${data.autoDate || ''}</p>
-                <p><strong>Client:</strong> ${data.client || '-'}</p>
-                <p><strong>Route:</strong> ${data.pol || '-'} → ${data.pod || '-'}</p>
-                <p><strong>Carrier:</strong> ${data.carrier || '-'}</p>
-                ${mode === 'sea' ? `<p><strong>Container:</strong> ${data.container || '-'}</p>` : ''}
-                <p><strong>Commodity:</strong> ${data.commodity || '-'}</p>
-                <p><strong>Transit Time:</strong> ${data.transit ? data.transit + ' Days' : '-'}</p>
-                <p><strong>Validity:</strong> ${data.validityDate || '-'}</p>
-                <h3 style="margin-top:20px;">Charge Breakdown</h3>
-                <table style="width:100%;border-collapse:collapse;margin:10px 0;">
-                    <thead><tr style="background:#1e3a8a;color:white;"><th style="padding:8px;text-align:left;">Charge</th><th style="padding:8px;text-align:right;">Amount</th><th style="padding:8px;text-align:left;">Currency</th><th style="padding:8px;text-align:right;">INR Equivalent</th></tr></thead>
-                    <tbody>${rows}</tbody>
-                    <tfoot><tr style="background:#10b981;color:white;font-weight:bold;"><td colspan="3" style="padding:8px;text-align:right;">GRAND TOTAL (INR)</td><td style="padding:8px;text-align:right;">${formatINR(totalSell)}</td></tr></tfoot>
-                </table>
-                ${data.remarks ? `<p><strong>Remarks:</strong> ${data.remarks}</p>` : ''}
-                <p style="margin-top:20px;font-size:0.9rem;color:#64748b;text-align:center;">${db.companyName || 'GATEWAY EXIM'}<br>${db.companyAddress || ''}<br><br>Prepared By: ${getLoggedInUserName() || db.defaultUser || 'N/A'}</p>
-            </div></body></html>`;
+    <html><head><meta charset="UTF-8"></head>
+    <body style="font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:20px;background:#ffffff;">
+        <div style="background:white;">
+            ${titleHtml}
+            ${detailHtml}
+            ${chargeRowsHtml}
+            ${remarksHtml}
+        </div>
+    </body></html>`;
 }
 function emailQuote(mode) {
     const data = getFormData(mode);
@@ -2295,149 +2439,43 @@ function sendEmail() {
     if (!currentEmailData) return alert('No data');
     const to = document.getElementById('email-to').value.trim();
     if (!to) return alert('Enter recipient email');
+    const cc = document.getElementById('email-cc').value.trim();
+    const subject = document.getElementById('email-subject').value.trim();
     const { data, mode } = currentEmailData;
     const htmlContent = buildEmailHTML(data, mode);
-    const blob = new Blob([htmlContent], { type: 'text/html' });
+    const boundary = 'boundary-' + Date.now();
+    let emlContent = `MIME-Version: 1.0
+Content-Type: multipart/alternative; boundary="${boundary}"
+Subject: ${subject}
+To: ${to}
+${cc ? 'CC: ' + cc + '\n' : ''}
+
+--${boundary}
+Content-Type: text/html; charset="UTF-8"
+Content-Transfer-Encoding: 7bit
+
+${htmlContent}
+
+--${boundary}--`;
+
+    const blob = new Blob([emlContent], { type: 'message/rfc822' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
     a.href = url;
-    a.download = `Email_Quotation_${data.quoteNumber || 'DRAFT'}.html`;
+    a.download = `Quotation_${data.quoteNumber || 'DRAFT'}.eml`;
+    document.body.appendChild(a);
     a.click();
+    document.body.removeChild(a);
     URL.revokeObjectURL(url);
-    const subject = encodeURIComponent(document.getElementById('email-subject').value);
-    const body = encodeURIComponent(`Please find the attached HTML quotation.\n\nQuote No: ${data.quoteNumber}\nTotal: ${formatINR(data.totalSellINR)}`);
-    let mailto = `mailto:${to}?subject=${subject}&body=${body}`;
-    const cc = document.getElementById('email-cc').value.trim();
-    if (cc) mailto += `&cc=${cc}`;
-    window.location.href = mailto;
+
     closeModal('emailModal');
-    setTimeout(() => { alert('✅ HTML email file downloaded. Please attach it to your email.'); }, 500);
-}
-
-// ==================== PDF GENERATION (html2canvas - Exact Preview Match) ====================
-function generatePDF(data, mode) {
-    if (typeof html2canvas === 'undefined') {
-        alert('html2canvas library not loaded. Please check your internet connection and refresh the page.');
-        return;
-    }
-
-    // 1. Generate the exact preview HTML
-    const html = buildPreviewHTML(data, mode);
-    const renderArea = document.getElementById('pdf-render-area');
-    if (!renderArea) {
-        alert('PDF render area not found. Please refresh the page.');
-        return;
-    }
-
-    // 2. Inject the HTML into the hidden render area
-    renderArea.innerHTML = html;
-    renderArea.style.cssText = `
-        position: fixed;
-        left: 0;
-        top: 0;
-        width: 800px;
-        background: white !important;
-        z-index: 9999;
-        opacity: 1;
-        padding: 10px;
-        box-shadow: 0 0 20px rgba(0,0,0,0.2);
-        font-family: 'Segoe UI', Arial, sans-serif !important;
-        font-size: 10px;
-    `;
-
-    // 3. Inject extra CSS to hide buttons/interactive elements that shouldn't print
-    const styleTag = document.createElement('style');
-    styleTag.textContent = `
-        .action-bar, .btn, button, .charge-row, .charges-header {
-            display: none !important;
-        }
-    `;
-    renderArea.appendChild(styleTag);
-
-    // 4. Allow the DOM to fully render before taking the screenshot
     setTimeout(() => {
-        html2canvas(renderArea, {
-            scale: 3,              // High scale for crisp, vector-like clarity
-            useCORS: true,
-            logging: false,
-            backgroundColor: '#ffffff',
-            width: 800,
-            windowWidth: 800,
-            allowTaint: true
-        }).then(canvas => {
-            const { jsPDF } = window.jspdf;
-            // 🟢 CHANGE HERE: Orientation set to LANDSCAPE to match your preview
-            const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'landscape' });
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            const margin = 10;
-            const imgData = canvas.toDataURL('image/jpeg', 0.95);
-
-            // Calculate image dimensions to fit the page width
-            let imgWidth = pdfWidth - 2 * margin;
-            let imgHeight = (canvas.height * imgWidth) / canvas.width;
-
-            // If the height exceeds the page height, scale it down to fit
-            const maxHeight = pdfHeight - 2 * margin;
-            if (imgHeight > maxHeight) {
-                const scale = maxHeight / imgHeight;
-                imgWidth *= scale;
-                imgHeight *= scale;
-            }
-
-            // Center the image horizontally and vertically on the landscape page
-            const x = (pdfWidth - imgWidth) / 2;
-            const y = (pdfHeight - imgHeight) / 2;
-            pdf.addImage(imgData, 'JPEG', x, y, imgWidth, imgHeight);
-
-            const fileName = `${data.quoteNumber || 'Quote'}.pdf`;
-            pdf.save(fileName);
-
-            // Cleanup render area
-            renderArea.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:white;z-index:-1;';
-            renderArea.innerHTML = '';
-        }).catch(err => {
-            console.error('PDF error:', err);
-            alert('PDF generation failed: ' + err.message);
-            renderArea.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:white;z-index:-1;';
-            renderArea.innerHTML = '';
-        });
+        alert('✅ Email file (.eml) downloaded.\n\nDouble‑click it to open Outlook. All tables and colors will appear exactly as in the PDF preview.');
     }, 500);
 }
 
-function downloadPDF(mode) {
-    const data = getFormData(mode);
-    if (!data.client && Object.keys(data.charges).length === 0) {
-        alert('Please fill the form with at least a Client Name and charges before generating PDF.');
-        return;
-    }
-    if (!data.quoteNumber) {
-        data.quoteNumber = document.getElementById(`${mode}-qn-value`).textContent || 'DRAFT-' + Date.now();
-    }
-    if (!data.chargesOrder || Object.keys(data.chargesOrder).length === 0) {
-        data.chargesOrder = getCurrentChargesOrder(mode);
-    }
-    generatePDF(data, mode);
-}
-
-function downloadSavedPDF(target, mode, idx) {
-    const rec = db[target][mode][idx];
-    if (!rec.chargesOrder || Object.keys(rec.chargesOrder).length === 0) {
-        rec.chargesOrder = getCurrentChargesOrder(mode);
-    }
-    generatePDF(rec, mode);
-}
-
-// ==================== PREVIEW ====================
-function buildPreviewHTML(data, mode) {
-    const modeLabel = { sea: 'SEA FREIGHT', air: 'AIR FREIGHT', lcl: 'LCL FREIGHT' }[mode];
-    const validityDisplay = data.validityDate ? new Date(data.validityDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
-    const transitDisplay = data.transit ? `${data.transit} Days` : '—';
-    const userName = getLoggedInUserName() || db.defaultUser || 'N/A';
-    const order = data.chargesOrder || getCurrentChargesOrder(mode);
-    const toUpper = (val) => val ? String(val).toUpperCase() : '-';
-
-    // Recalculate totals from charges using basis multipliers for preview
+// ==================== PDF GENERATION ====================
+function calculateChargesWithINR(data, mode) {
     let grandTotal = 0;
     const chargesWithINR = {};
     Object.entries(data.charges || {}).forEach(([charge, c]) => {
@@ -2445,7 +2483,6 @@ function buildPreviewHTML(data, mode) {
         let unitBuyAmt = c.buyAmount || 0;
         let totalSellAmt = unitSellAmt;
         let totalBuyAmt = unitBuyAmt;
-
         if (mode === 'air' || mode === 'lcl') {
             const basis = c.basis || 'Normal';
             if (basis === 'Per KGS') {
@@ -2471,26 +2508,262 @@ function buildPreviewHTML(data, mode) {
         }
         const sellINR = toINR(totalSellAmt, c.currency);
         const buyINR = toINR(totalBuyAmt, c.buyCurrency || c.currency);
-        chargesWithINR[charge] = { 
-            unitSellAmt, 
-            totalSellAmt, 
-            currency: c.currency, 
-            sellINR, 
-            buyINR, 
-            basis: c.basis || 'Normal' 
+        chargesWithINR[charge] = {
+            unitSellAmt,
+            totalSellAmt,
+            currency: c.currency,
+            sellINR,
+            buyINR,
+            basis: c.basis || 'Normal'
         };
         grandTotal += sellINR;
     });
+    return { chargesWithINR, grandTotal };
+}
 
+function buildPDFDefinition(data, mode) {
+    const modeLabel = { sea: 'SEA FREIGHT', air: 'AIR FREIGHT', lcl: 'LCL FREIGHT' }[mode];
+    const userName = getLoggedInUserName() || db.defaultUser || 'N/A';
+    const order = data.chargesOrder || getCurrentChargesOrder(mode);
+    const toUpper = (val) => val ? String(val).toUpperCase() : '-';
+    const { chargesWithINR, grandTotal } = calculateChargesWithINR(data, mode);
+    function buildChargeTableRows(category, charges) {
+        const catEntries = charges.filter(ch => chargesWithINR[ch]);
+        if (catEntries.length === 0) return null;
+        let rows = [
+            [{ text: '#', style: 'Aptos', alignment: 'center' },
+                { text: 'Charge Type', style: 'Aptos' },
+                { text: 'Sell Amt', style: 'Aptos', alignment: 'center' },
+                { text: 'Currency', style: 'Aptos', alignment: 'center' },
+                { text: 'INR Equivalent', style: 'Aptos', alignment: 'center' },
+                { text: 'Basis', style: 'Aptos', alignment: 'center' }]
+        ];
+        let catTotal = 0;
+        catEntries.forEach((ch, i) => {
+            const c = chargesWithINR[ch];
+            catTotal += c.sellINR;
+            const isFreight = ch.toUpperCase() === 'FREIGHT' || ch.toUpperCase() === 'AIR FREIGHT';
+            rows.push([
+                { text: String(i + 1), alignment: 'center' },
+                { text: ch.toUpperCase(), bold: isFreight, color: isFreight ? '#dc2626' : '#000' },
+                { text: Number(c.unitSellAmt).toLocaleString('en-IN'), alignment: 'center' },
+                { text: c.currency, alignment: 'center' },
+                { text: formatINR(c.sellINR), alignment: 'center' },
+                { text: c.basis, alignment: 'center' }
+            ]);
+        });
+        rows.push([
+            { text: 'Subtotal:', colSpan: 4, alignment: 'center', bold: true },
+            {}, {}, {},
+            { text: formatINR(catTotal), alignment: 'center', bold: true },
+            {}
+        ]);
+        return rows;
+    }
+    const content = [];
+    content.push(
+        { text: db.companyName || 'GATEWAY EXIM', style: 'companyName' },
+        { text: db.companyAddress || '', style: 'companyAddress' },
+        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 2, lineColor: '#1e3a8a' }] },
+        { text: ' ' }
+    );
+    content.push({
+        columns: [
+            { text: modeLabel + ' QUOTATION', style: 'title' },
+            { text: 'Quote No: ' + (data.quoteNumber || 'DRAFT'), style: 'quoteNum', alignment: 'right' }
+        ]
+    });
+    const detailRows = [
+        [{ text: 'Client', style: 'detailLabel' }, { text: toUpper(data.client) },
+        { text: 'Quote Date', style: 'detailLabel' }, { text: data.autoDate || '-' }],
+        [{ text: 'Carrier', style: 'detailLabel' }, { text: toUpper(data.carrier) },
+        { text: 'Incoterm', style: 'detailLabel' }, { text: toUpper(data.incoterm) }],
+        [{ text: 'POL', style: 'detailLabel' }, { text: toUpper(data.pol) },
+        { text: 'POD', style: 'detailLabel' }, { text: toUpper(data.pod) }],
+        [{ text: 'Commodity', style: 'detailLabel' }, { text: toUpper(data.commodity) },
+        { text: 'Weight (KGS)', style: 'detailLabel' }, { text: data.weight || '-' }],
+        [{ text: mode === 'sea' ? 'Container' : 'Volume (CBM)', style: 'detailLabel' },
+        { text: mode === 'sea' ? toUpper(data.container) : (data.volume || '-') },
+        { text: 'Transit Time', style: 'detailLabel' }, { text: data.transit ? data.transit + ' Days' : '-' }],
+        [{ text: 'Validity Date', style: 'detailLabel' }, { text: data.validityDate ? new Date(data.validityDate).toLocaleDateString('en-IN') : '-' },
+        { text: 'Status', style: 'detailLabel' }, { text: toUpper(data.status) }]
+    ];
+    content.push({
+        table: {
+            widths: ['*', '*', '*', '*'],
+            body: detailRows
+        },
+        layout: {
+            hLineWidth: function() { return 1; },
+            vLineWidth: function() { return 1; },
+            hLineColor: '#d1d5db',
+            vLineColor: '#d1d5db',
+            fillColor: function(rowIndex) {
+                return (rowIndex % 2 === 0) ? '#f1f5f9' : null;
+            }
+        },
+        margin: [0, 10, 0, 10]
+    });
+    if (Object.keys(chargesWithINR).length > 0) {
+        Object.entries(order).forEach(([category, charges]) => {
+            if (charges.length === 0) return;
+            const rows = buildChargeTableRows(category, charges);
+            if (!rows) return;
+            content.push({ text: category.toUpperCase(), style: 'categoryHeader' });
+            content.push({
+                table: {
+                    widths: ['auto', '*', 'auto', 'auto', 'auto', 'auto'],
+                    body: rows
+                },
+                layout: {
+                    hLineWidth: function() { return 1; },
+                    vLineWidth: function() { return 1; },
+                    hLineColor: '#d1d5db',
+                    vLineColor: '#d1d5db',
+                    fillColor: function(rowIndex) {
+                        if (rowIndex === 0) return '#1e3a8a';
+                        if (rowIndex === rows.length - 1) return '#f1f5f9';
+                        return null;
+                    }
+                },
+                margin: [0, 5, 0, 10]
+            });
+        });
+        content.push({
+            table: {
+                widths: ['*', 'auto'],
+                body: [
+                    [{ text: 'GRAND TOTAL (INR)', alignment: 'right', bold: true, fontSize: 11, color: 'white' },
+                    { text: formatINR(grandTotal), alignment: 'right', bold: true, fontSize: 11, color: 'white' }]
+                ]
+            },
+            layout: {
+                fillColor: '#10b981'
+            },
+            margin: [0, 0, 0, 10]
+        });
+    }
+    if (data.remarks) {
+        content.push({
+            table: {
+                widths: ['*'],
+                body: [
+                    [{ text: 'Remarks', style: 'categoryHeader' }],
+                    [{ text: data.remarks.toUpperCase(), margin: [5, 5] }]
+                ]
+            },
+            layout: 'noBorders',
+            margin: [0, 5, 0, 10]
+        });
+    }
+    content.push(
+        { canvas: [{ type: 'line', x1: 0, y1: 0, x2: 515, y2: 0, lineWidth: 1, lineColor: '#e2e8f0' }] },
+        { text: 'This quotation is system-generated. Rates are subject to change based on validity date.', alignment: 'center', fontSize: 8, color: '#64748b', margin: [0, 8, 0, 2] },
+        { text: 'Generated on ' + new Date().toLocaleString('en-IN'), alignment: 'center', fontSize: 8, color: '#64748b' },
+        { text: 'Prepared By: ' + userName, alignment: 'center', fontSize: 8, color: '#64748b', margin: [0, 2, 0, 0] }
+    );
+    return {
+        content: content,
+        styles: {
+            companyName: { fontSize: 14, bold: true, color: '#1e3a8a' },
+            companyAddress: { fontSize: 9, color: '#64748b', margin: [0, 2, 0, 4] },
+            title: { fontSize: 18, bold: true, color: '#ed0909' },
+            quoteNum: { fontSize: 12, bold: true, color: '#d97706' },
+            detailLabel: { fontSize: 11, bold: true, color: '#334155' },
+            categoryHeader: { fontSize: 11, bold: true, color: '#2a0996', margin: [0, 8, 0, 4] },
+            Aptos: { fontSize: 11, bold: true, color: 'white' }
+        },
+        defaultStyle: {
+            fontSize: 10,
+            font: 'Roboto'
+        }
+    };
+}
+function generatePDF(data, mode) {
+    if (typeof pdfMake === 'undefined') {
+        alert('pdfmake library is not loaded. Please add the scripts to your HTML and refresh.');
+        return;
+    }
+    if (!data.client && Object.keys(data.charges).length === 0) {
+        alert('Please fill the form with at least a Client Name and charges before generating PDF.');
+        return;
+    }
+    if (!data.quoteNumber) {
+        data.quoteNumber = document.getElementById(`${mode}-qn-value`).textContent || 'DRAFT-' + Date.now();
+    }
+    if (!data.chargesOrder || Object.keys(data.chargesOrder).length === 0) {
+        data.chargesOrder = getCurrentChargesOrder(mode);
+    }
+    const docDefinition = buildPDFDefinition(data, mode);
+    pdfMake.createPdf(docDefinition).download(`${data.quoteNumber || 'Quote'}.pdf`);
+}
+function downloadPDF(mode) {
+    const data = getFormData(mode);
+    generatePDF(data, mode);
+}
+function downloadSavedPDF(target, mode, idx) {
+    const rec = db[target][mode][idx];
+    if (!rec.chargesOrder || Object.keys(rec.chargesOrder).length === 0) {
+        rec.chargesOrder = getCurrentChargesOrder(mode);
+    }
+    generatePDF(rec, mode);
+}
+
+// ==================== PREVIEW ====================
+function buildPreviewHTML(data, mode) {
+    const modeLabel = { sea: 'SEA FREIGHT', air: 'AIR FREIGHT', lcl: 'LCL FREIGHT' }[mode];
+    const validityDisplay = data.validityDate ? new Date(data.validityDate).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) : '—';
+    const transitDisplay = data.transit ? `${data.transit} Days` : '—';
+    const userName = getLoggedInUserName() || db.defaultUser || 'N/A';
+    const order = data.chargesOrder || getCurrentChargesOrder(mode);
+    const toUpper = (val) => val ? String(val).toUpperCase() : '-';
+    let grandTotal = 0;
+    const chargesWithINR = {};
+    Object.entries(data.charges || {}).forEach(([charge, c]) => {
+        let unitSellAmt = c.amount;
+        let unitBuyAmt = c.buyAmount || 0;
+        let totalSellAmt = unitSellAmt;
+        let totalBuyAmt = unitBuyAmt;
+        if (mode === 'air' || mode === 'lcl') {
+            const basis = c.basis || 'Normal';
+            if (basis === 'Per KGS') {
+                totalSellAmt *= (data.weight || 0);
+                totalBuyAmt *= (data.weight || 0);
+            } else if (basis === 'Per CBM') {
+                totalSellAmt *= (data.volume || 0);
+                totalBuyAmt *= (data.volume || 0);
+            } else if (basis === 'Per KGS × 3') {
+                totalSellAmt *= (data.weight || 0) * 3;
+                totalBuyAmt *= (data.weight || 0) * 3;
+            }
+        }
+        if (mode === 'lcl' && (charge === 'FREIGHT' || charge === 'THC')) {
+            const volume = data.volume || 0;
+            if (volume > 0) {
+                const basis = c.basis || 'Normal';
+                if (basis === 'Normal') {
+                    totalSellAmt *= volume;
+                    totalBuyAmt *= volume;
+                }
+            }
+        }
+        const sellINR = toINR(totalSellAmt, c.currency);
+        const buyINR = toINR(totalBuyAmt, c.buyCurrency || c.currency);
+        chargesWithINR[charge] = {
+            unitSellAmt,
+            totalSellAmt,
+            currency: c.currency,
+            sellINR,
+            buyINR,
+            basis: c.basis || 'Normal'
+        };
+        grandTotal += sellINR;
+    });
     let html = `<div style="background:#ffffff !important; color:#1a1a1a !important; font-family:'Segoe UI',Arial,sans-serif; max-width:800px; margin:0 auto; padding:10px;">
-        
-        <!-- 1. COMPANY LETTERHEAD AT TOP -->
         <div style="border-bottom:2px solid #1e3a8a;padding-bottom:8px;margin-bottom:10px;">
             <div style="font-size:0.9rem;font-weight:700;color:#1e3a8a;">${db.companyName || 'GATEWAY EXIM'}</div>
             <div style="font-size:0.65rem;color:#64748b;">${db.companyAddress || ''}</div>
         </div>
-
-        <!-- 2. TITLE & QUOTE NO (EXACT ORIGINAL BOX LAYOUT) -->
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
             <div style="text-align:left;">
                 <div style="font-size:1.2rem;color:#1e3a8a !important;font-weight:800;letter-spacing:1px;">${modeLabel} QUOTATION</div>
@@ -2499,8 +2772,6 @@ function buildPreviewHTML(data, mode) {
                 <div style="font-family:'Courier New',monospace;color:#d97706 !important;font-weight:700;font-size:0.85rem;background:#fffbeb;padding:4px 10px;border-radius:5px;">Quote No: ${data.quoteNumber||'DRAFT'}</div>
             </div>
         </div>`;
-
-    // 3. CUSTOMER & SHIPMENT DETAILS (Blue header, exact table as original)
     html += `
         <div style="background:#1e3a8a !important;color:white !important;font-weight:700;padding:5px 9px;margin-top:12px;border-radius:4px 4px 0 0;font-size:0.78rem;">Customer & Shipment Details</div>
         <table style="width:100%;border-collapse:collapse;margin-top:0;font-size:0.72rem;">
@@ -2511,8 +2782,6 @@ function buildPreviewHTML(data, mode) {
             <tr><th style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;background:#f1f5f9 !important;color:#334155 !important;font-weight:700;">${mode==='sea'?'Container':'Volume (CBM)'}</th><td style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;color:#1a1a1a !important;">${mode==='sea'?toUpper(data.container):(data.volume||'-')}</td><th style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;background:#f1f5f9 !important;color:#334155 !important;font-weight:700;">Transit Time</th><td style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;color:#1a1a1a !important;">${transitDisplay}</td></tr>
             <tr><th style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;background:#f1f5f9 !important;color:#334155 !important;font-weight:700;">Validity Date</th><td style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;color:#1a1a1a !important;">${validityDisplay}</td><th style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;background:#f1f5f9 !important;color:#334155 !important;font-weight:700;">Status</th><td style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;color:#1a1a1a !important;">${toUpper(data.status)}</td></tr>
         </table>`;
-
-    // 4. CHARGES BREAKDOWN (Blue headers for each category)
     if (Object.keys(chargesWithINR).length > 0) {
         Object.entries(order).forEach(([category, charges]) => {
             if (charges.length === 0) return;
@@ -2551,8 +2820,6 @@ function buildPreviewHTML(data, mode) {
                     <tr><td style="border:1px solid #d1d5db;padding:6px 9px;text-align:left;color:#1a1a1a !important;white-space:pre-wrap;line-height:1.5;">${data.remarks.toUpperCase()}</td></tr>
                 </table>`;
     }
-
-    // 5. FOOTER DISCLAIMER
     html += `
         <div style="margin-top:12px;font-size:0.68rem;color:#64748b !important;text-align:center;border-top:1px solid #e2e8f0;padding-top:10px;">
             <p>This quotation is system-generated. Rates are subject to change based on validity date.</p>
@@ -2577,18 +2844,13 @@ function previewSavedRecord(target, mode, idx) {
     document.getElementById('previewBody').style.background = 'white';
     openModal('previewModal');
 }
-
-// ==================== DSR FUNCTIONS (ENHANCED) ====================
-// ===== Dropdown Toggle =====
+// ==================== DSR FUNCTIONS ====================
 let addShipmentDropdownOpen = false;
-
 function toggleAddShipmentDropdown() {
     const dd = document.getElementById('addShipmentDropdown');
     addShipmentDropdownOpen = !addShipmentDropdownOpen;
     dd.classList.toggle('show', addShipmentDropdownOpen);
 }
-
-// Close dropdown when clicking outside
 document.addEventListener('click', function(e) {
     const wrapper = document.querySelector('.add-shipment-wrapper');
     if (wrapper && !wrapper.contains(e.target)) {
@@ -2597,238 +2859,428 @@ document.addEventListener('click', function(e) {
     }
 });
 
-// ===== SEA DSR Popup =====
-let seaDsrEditIdx = null;
+// ===== UNIFIED DSR GLOBAL VARIABLES =====
+let dsrEditIdx = null;
 
-function openSeaDsrModal(editIdx = null, prefill = null) {
-    document.getElementById('addShipmentDropdown').classList.remove('show');
-    addShipmentDropdownOpen = false;
-
-    seaDsrEditIdx = editIdx;
-    const body = document.getElementById('seaDsrBody');
-
-    let s = createEmptySeaShipment();
-    let isEdit = false;
-
-    if (prefill) {
-        s = { ...s, ...prefill };
-    } else if (editIdx !== null && db.shipments && db.shipments[editIdx] && db.shipments[editIdx].type === 'SEA') {
-        s = { ...db.shipments[editIdx] };
-        isEdit = true;
-    }
-
-    body.innerHTML = buildSeaDsrForm(s, isEdit);
-    openModal('seaDsrModal');
-    setTimeout(() => {
-        const first = body.querySelector('input, select');
-        if (first) first.focus();
-    }, 100);
-}
-
-function createEmptySeaShipment() {
-    return {
-        type: 'SEA',
-        code: 'SR-' + Date.now().toString(36).toUpperCase(),
-        shipper: '',
-        cargoStatus: 'Booked',
-        docsStatus: 'Pending',
-        pol: '',
-        pod: '',
-        bookingNo: '',
-        containerNo: '',
-        etd: '',
-        eta: '',
-        pickup: '',
-        gatein: '',
-        liner: '',
-        invoiceType: '',
-        incoterm: '',
-        commodity: '',
-        sell: 0,
-        buy: 0,
-        margin: 0,
-        carrierCharges: { THC: 0, SEAL: 0, MUC: 0, DOCS: 0, SEAWAY: 0, ETS: 0, HAZDOCS: 0, AMS: 0 },
-        otherCharges: { CFS: 0, CLEARANCE: 0, VGM: 0, TOLL: 0, LASCHO: 0, HAZSTICKER: 0, GRWEIGHT: 0,
-            TRANSPORTATION: 0, LOLO: 0, OTHERLOCAL: 0, OTHERLOCAL2: 0, OTHERLOCAL3: 0 },
-        remarks: '',
-        date: new Date().toISOString().split('T')[0],
-        sales: db.defaultUser || ''
-    };
-}
-
-function buildSeaDsrForm(s, isEdit) {
+// ===== UNIFIED DSR FORM BUILDER =====
+function buildDsrForm(s, mode, isEdit) {
     const carriers = db.carriers.filter(c => !(db.hiddenItems.carriers || []).includes(c)).sort();
     const polList = db.pol.filter(p => !(db.hiddenItems.pol || []).includes(p)).sort();
     const podList = db.pod.filter(p => !(db.hiddenItems.pod || []).includes(p)).sort();
-    const incoterms = db.incoterms.filter(i => !(db.hiddenItems.incoterms || []).includes(i)).sort();
-    const cargoM = db.cargoStatusMaster || ["Booked", "Confirmed", "In Transit", "Delivered", "Cancelled"];
-    const docsM = db.docsStatusMaster || ["Pending", "In Progress", "Ready", "Sent", "Received"];
 
-    const margin = (s.sell || 0) - (s.buy || 0);
+    let html = `<div class="dsr-btn-bar">
+        <button class="btn btn-search" onclick="dsrSearch()">Search</button>
+        <button class="btn btn-modify" onclick="dsrModify()">Modify</button>
+        <button class="btn btn-addnew" onclick="dsrAddNew()">Add New</button>
+        <button class="btn btn-clear-dsr" onclick="dsrClear()">Clear</button>
+        <button class="btn btn-exit" onclick="closeModal('dsrModal')">Exit</button>
+        ${isEdit ? `<button class="btn btn-update-dsr" onclick="saveDsrShipment(true)">Update</button>` : `<button class="btn btn-save-dsr" onclick="saveDsrShipment(false)">Save</button>`}
+        <button class="btn btn-cancel-dsr" onclick="closeModal('dsrModal')">Cancel</button>
+        <button class="btn btn-info" onclick="toggleDsrDesignMode()">🖱️ Layout</button>
+        <button class="btn btn-print-dsr" onclick="window.print()">Print</button>
+        <button class="btn btn-pdf-dsr" onclick="dsrPDF()">PDF</button>
+        <button class="btn btn-dup-dsr" onclick="dsrDuplicate()">Duplicate</button>
+        ${isEdit ? `<button class="btn btn-del-dsr" onclick="dsrDelete()">Delete</button>` : ''}
+        <button class="btn btn-close-dsr" onclick="closeModal('dsrModal')">Close</button>
+    </div>`;
 
-    // Button bar (without Preview)
-    let btnBar = `
-        <div class="dsr-btn-bar">
-            <button class="btn btn-search" onclick="seaDsrSearch()">Search</button>
-            <button class="btn btn-modify" onclick="seaDsrModify()">Modify</button>
-            <button class="btn btn-addnew" onclick="seaDsrAddNew()">Add New</button>
-            <button class="btn btn-clear-dsr" onclick="seaDsrClear()">Clear</button>
-            <button class="btn btn-exit" onclick="closeModal('seaDsrModal')">Exit</button>
-            ${isEdit ? `<button class="btn btn-update-dsr" onclick="saveSeaDsrShipment(true)">Update</button>` : `<button class="btn btn-save-dsr" onclick="saveSeaDsrShipment(false)">Save</button>`}
-            <button class="btn btn-cancel-dsr" onclick="closeModal('seaDsrModal')">Cancel</button>
-            <button class="btn btn-info" onclick="toggleDsrDesignMode()">🖱️ Layout</button>
-            <button class="btn btn-print-dsr" onclick="seaDsrPrint()">Print</button>
-            <button class="btn btn-pdf-dsr" onclick="seaDsrPDF()">PDF</button>
-            <button class="btn btn-dup-dsr" onclick="seaDsrDuplicate()">Duplicate</button>
-            ${isEdit ? `<button class="btn btn-del-dsr" onclick="seaDsrDelete()">Delete</button>` : ''}
-            <button class="btn btn-close-dsr" onclick="closeModal('seaDsrModal')">Close</button>
-        </div>
-    `;
-
-    // Form fields (using master data for statuses)
-    let form = `
-        <div class="dsr-form-grid cols-3">
-            <div class="dsr-field"><label>Code</label><input type="text" id="sea-code" value="${s.code || ''}" /></div>
-            <div class="dsr-field" style="grid-column:span 2;"><label>Shipper</label><input type="text" id="sea-shipper" value="${s.shipper || ''}" /></div>
-            <div class="dsr-field"><label>Cargo Status</label><select id="sea-cargo-status">
-                ${cargoM.map(st => `<option value="${st}" ${s.cargoStatus===st?'selected':''}>${st}</option>`).join('')}
-            </select></div>
-            <div class="dsr-field"><label>Docs Status</label><select id="sea-docs-status">
-                ${docsM.map(st => `<option value="${st}" ${s.docsStatus===st?'selected':''}>${st}</option>`).join('')}
-            </select></div>
-            <div class="dsr-field"><label>POL</label><select id="sea-pol">${polList.map(p => `<option value="${p}" ${s.pol===p?'selected':''}>${p}</option>`).join('')}</select></div>
-            <div class="dsr-field"><label>POD</label><select id="sea-pod">${podList.map(p => `<option value="${p}" ${s.pod===p?'selected':''}>${p}</option>`).join('')}</select></div>
-            <div class="dsr-field"><label>Booking No.</label><input type="text" id="sea-booking" value="${s.bookingNo || s.jobBkg || ''}" /></div>
-            <div class="dsr-field"><label>Container No.</label><input type="text" id="sea-container" value="${s.containerNo || ''}" /></div>
-            <div class="dsr-field"><label>ETD</label><input type="date" id="sea-etd" value="${s.etd || s.dd || ''}" /></div>
-            <div class="dsr-field"><label>ETA</label><input type="date" id="sea-eta" value="${s.eta || ''}" /></div>
-            <div class="dsr-field"><label>Pickup</label><input type="datetime-local" id="sea-pickup" value="${s.pickup || ''}" /></div>
-            <div class="dsr-field"><label>Gate In</label><input type="datetime-local" id="sea-gatein" value="${s.gatein || ''}" /></div>
-            <div class="dsr-field"><label>Liner</label><select id="sea-liner">${carriers.map(c => `<option value="${c}" ${s.liner===c?'selected':''}>${c}</option>`).join('')}</select></div>
-            <div class="dsr-field"><label>Invoice Type</label><select id="sea-invoice-type"><option value="">Select</option><option value="SEA" ${s.invoiceType==='SEA'?'selected':''}>SEA</option><option value="AIR" ${s.invoiceType==='AIR'?'selected':''}>AIR</option><option value="LCL" ${s.invoiceType==='LCL'?'selected':''}>LCL</option></select></div>
-            <div class="dsr-field"><label>Incoterm</label><select id="sea-incoterm">${incoterms.map(i => `<option value="${i}" ${s.incoterm===i?'selected':''}>${i}</option>`).join('')}</select></div>
-            <div class="dsr-field"><label>Commodity</label><input type="text" id="sea-commodity" value="${s.commodity || ''}" /></div>
-        </div>
-    `;
-
-    // Charges sections (unchanged)
-    let charges = `
-        <div class="dsr-section-title green-title">Carrier - Local Charges</div>
-        <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-            <div>
-                <div class="dsr-form-grid cols-2">
-                    <div class="dsr-field"><label class="green-label">Sell</label><input type="number" id="sea-sell" value="${s.sell||0}" oninput="calcSeaMargin()" step="0.01" /></div>
-                    <div class="dsr-field"><label class="red-label">Buy</label><input type="number" id="sea-buy" value="${s.buy||0}" oninput="calcSeaMargin()" step="0.01" /></div>
-                    <div class="dsr-field"><label class="darkblue-label" style="min-width:70px;">Margin</label><input type="text" id="sea-margin" value="${margin.toFixed(2)}" readonly class="result-display" style="background:#ffff00;font-weight:700;" /></div>
-                </div>
+    html += `<div style="background:#f8fafc;padding:10px;border:1px solid #cbd5e1;margin-bottom:10px;">
+        <h3 style="text-align:center;font-weight:800;font-size:1.4rem;color:#1e3a8a;margin-bottom:10px;">GATEWAY EXIM <span style="font-weight:400;font-size:1rem;color:#64748b;"></span></h3>
+        
+        <div style="display:flex;gap:10px;flex-wrap:wrap;justify-content:space-between;margin-bottom:10px;">
+            <div class="form-group" style="flex:1;"><label>Direction</label>
+                <select id="dsr-direction" style="width:100%;"><option value="EXPORT" ${s.exportImport==='EXPORT'?'selected':''}>EXPORT</option><option value="IMPORT" ${s.exportImport==='IMPORT'?'selected':''}>IMPORT</option></select>
             </div>
-            <div>
-                <div class="dsr-charges-grid">
-                    <div class="charge-row"><label class="teal">THC</label><input type="number" id="sea-thc" value="${s.carrierCharges?.THC||0}" step="0.01" /></div>
-                    <div class="charge-row"><label class="teal">SEAWAY</label><input type="number" id="sea-seaway" value="${s.carrierCharges?.SEAWAY||0}" step="0.01" /></div>
-                    <div class="charge-row"><label class="teal">SEAL</label><input type="number" id="sea-seal" value="${s.carrierCharges?.SEAL||0}" step="0.01" /></div>
-                    <div class="charge-row"><label class="teal">ETS</label><input type="number" id="sea-ets" value="${s.carrierCharges?.ETS||0}" step="0.01" /></div>
-                    <div class="charge-row"><label class="teal">MUC</label><input type="number" id="sea-muc" value="${s.carrierCharges?.MUC||0}" step="0.01" /></div>
-                    <div class="charge-row"><label class="teal">HAZ DOCS</label><input type="number" id="sea-hazdocs" value="${s.carrierCharges?.HAZDOCS||0}" step="0.01" /></div>
-                    <div class="charge-row"><label class="teal">DOCS</label><input type="number" id="sea-docs" value="${s.carrierCharges?.DOCS||0}" step="0.01" /></div>
-                    <div class="charge-row"><label class="teal">AMS</label><input type="number" id="sea-ams" value="${s.carrierCharges?.AMS||0}" step="0.01" /></div>
-                </div>
+            <div class="form-group" style="flex:1;"><label>Mode</label>
+                <select id="dsr-mode" onchange="changeDsrMode()" style="width:100%;"><option value="SEA" ${mode==='SEA'?'selected':''}>SEA</option><option value="AIR" ${mode==='AIR'?'selected':''}>AIR</option></select>
+            </div>
+            <div class="form-group" style="flex:1;"><label>Service A</label>
+                <select id="dsr-service-a" style="width:100%;"><option value="SELF SEAL" ${s.service1==='SELF SEAL'?'selected':''}>SELF SEAL</option><option value="DOCS STUFFING" ${s.service1==='DOCS STUFFING'?'selected':''}>DOCS STUFFING</option><option value="ON WHEEL CLEARANCE" ${s.service1==='ON WHEEL CLEARANCE'?'selected':''}>ON WHEEL CLEARANCE</option></select>
+            </div>
+            <div class="form-group" style="flex:1;"><label>Service B</label>
+                <select id="dsr-service-b" style="width:100%;"><option value="CLEAN ONLY" ${s.service2==='CLEAN ONLY'?'selected':''}>CLEAN ONLY</option><option value="FORWARDING ONLY" ${s.service2==='FORWARDING ONLY'?'selected':''}>FORWARDING ONLY</option><option value="TRANSPORTATION ONLY" ${s.service2==='TRANSPORTATION ONLY'?'selected':''}>TRANSPORTATION ONLY</option></select>
             </div>
         </div>
+        
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+            <div class="form-group" style="grid-column:span 2;display:flex;gap:10px;">
+            </div>            
+			<div class="form-group"><label>JOB NO.</label><input type="text" id="dsr-job-no" value="${s.jobNo || s.code || ''}" style="width:100%;"></div>
+            <div class="form-group"><label>Date</label><input type="date" id="dsr-date" value="${s.date || ''}" style="width:100%;"></div>
 
-        <div class="dsr-section-title darkblue-label">Other - Local Charges</div>
-        <div class="dsr-charges-grid">
-            <div class="charge-row"><label class="teal">CFS</label><input type="number" id="sea-cfs" value="${s.otherCharges?.CFS||0}" step="0.01" /></div>
-            <div class="charge-row"><label class="teal">GR. Weight</label><input type="number" id="sea-grweight" value="${s.otherCharges?.GRWEIGHT||0}" step="0.01" /></div>
-            <div class="charge-row"><label class="teal">Clearance</label><input type="number" id="sea-clearance" value="${s.otherCharges?.CLEARANCE||0}" step="0.01" /></div>
-            <div class="charge-row"><label class="teal">Transportation</label><input type="number" id="sea-transport" value="${s.otherCharges?.TRANSPORTATION||0}" step="0.01" /></div>
-            <div class="charge-row"><label class="teal">VGM</label><input type="number" id="sea-vgm" value="${s.otherCharges?.VGM||0}" step="0.01" /></div>
-            <div class="charge-row"><label class="teal">LOLO</label><input type="number" id="sea-lolo" value="${s.otherCharges?.LOLO||0}" step="0.01" /></div>
-            <div class="charge-row"><label class="teal">Toll</label><input type="number" id="sea-toll" value="${s.otherCharges?.TOLL||0}" step="0.01" /></div>
-            <div class="charge-row"><label class="teal">Other Local</label><input type="number" id="sea-otherlocal" value="${s.otherCharges?.OTHERLOCAL||0}" step="0.01" /></div>
-            <div class="charge-row"><label class="teal">Lashing & Choking</label><input type="number" id="sea-lascho" value="${s.otherCharges?.LASCHO||0}" step="0.01" /></div>
-            <div class="charge-row"><label class="teal">Other Local 2</label><input type="number" id="sea-otherlocal2" value="${s.otherCharges?.OTHERLOCAL2||0}" step="0.01" /></div>
-            <div class="charge-row"><label class="teal">Haz Sticker</label><input type="number" id="sea-hazsticker" value="${s.otherCharges?.HAZSTICKER||0}" step="0.01" /></div>
-            <div class="charge-row"><label class="teal">Other Local 3</label><input type="number" id="sea-otherlocal3" value="${s.otherCharges?.OTHERLOCAL3||0}" step="0.01" /></div>
+            <div class="form-group"><label>Shipper</label><input type="text" id="dsr-shipper" value="${s.shipper || ''}" style="width:100%;"></div>
+            <div class="form-group"><label>No. of Pkgs / Cntr.</label><input type="text" id="dsr-packages" value="${s.packages || ''}" style="width:100%;"></div>
+            
+            <div class="form-group"><label>Port of Loading (POL)</label><select id="dsr-pol" style="width:100%;"><option value="">Select</option></select></div>
+            <div class="form-group"><label>Port of Discharge (POD)</label><select id="dsr-pod" style="width:100%;"><option value="">Select</option></select></div>
+            
+            <div class="form-group"><label>Shipping Line</label><select id="dsr-liner" style="width:100%;"><option value="">Select</option></select></div>
+            <div class="form-group"><label>ETD</label><input type="date" id="dsr-etd" value="${s.etd || ''}" style="width:100%;"></div>
+            
+            <div class="form-group"><label>Shipping Bill NO.</label><input type="text" id="dsr-shipping-bill-no" value="${s.shippingBillNo || ''}" style="width:100%;"></div>
+            <div class="form-group"><label>Date</label><input type="date" id="dsr-shipping-bill-date" value="${s.shippingBillDate || ''}" style="width:100%;"></div>
+            
+            <div class="form-group"><label>MBL NO.</label><input type="text" id="dsr-mbl-no" value="${s.mblNo || ''}" style="width:100%;"></div>
+            <div class="form-group"><label>HBL NO</label><input type="text" id="dsr-hbl-no" value="${s.hblNo || ''}" style="width:100%;"></div>
+            
+            <div class="form-group"><label>Pickup Date</label><input type="date" id="dsr-pickup-date" value="${s.pickupDate || ''}" style="width:100%;"></div>
+            <div class="form-group"><label>Clearance Date</label><input type="date" id="dsr-clearance-date" value="${s.clearanceDate || ''}" style="width:100%;"></div>
+            
+            <div class="form-group"><label>Docs hand. Date</label><input type="date" id="dsr-docs-hand-date" value="${s.docsHandDate || ''}" style="width:100%;"></div>
+            <div class="form-group"><label>Gatein Date</label><input type="date" id="dsr-gatein-date" value="${s.gateinDate || ''}" style="width:100%;"></div>
+            
+            <div class="form-group"><label>DGD Indexing Date</label><input type="date" id="dsr-dgd-indexing-date" value="${s.dgdIndexingDate || ''}" style="width:100%;"></div>
+            <div class="form-group"><label>BL Release Date</label><input type="date" id="dsr-bl-release-date" value="${s.blReleaseDate || ''}" style="width:100%;"></div>
+            
+            <div class="form-group" style="grid-column:span 2;display:flex;gap:10px;">
+                <div style="flex:2;"><label>Vessel & ATD</label><input type="text" id="dsr-vessel-atd" value="${s.vesselAtd || ''}" style="width:100%;"></div>
+                <div style="flex:1;"><label>ETA</label><input type="date" id="dsr-eta" value="${s.eta || ''}" style="width:100%;"></div>
+            </div>
         </div>
+        <div class="form-group"><label>Remarks</label><textarea id="dsr-remarks" rows="2" style="width:100%;">${s.remarks || ''}</textarea></div>
+        <input type="hidden" id="dsr-code" value="${s.code || ''}" />
+        <input type="hidden" id="dsr-cargo-status" value="${s.cargoStatus || 'Booked'}" />
+        <input type="hidden" id="dsr-docs-status" value="${s.docsStatus || 'Pending'}" />
+    </div>
+    <div id="dsr-charges-area"></div>`;
 
-        <div style="margin-top:8px;">
-            <div class="dsr-field"><label>Remarks</label><input type="text" id="sea-remarks" value="${s.remarks||''}" style="flex:1;padding:3px 6px;border:1px solid #999;border-radius:0;font-size:0.75rem;background:white;color:#1a1a1a;" /></div>
-        </div>
-    `;
-
-    return btnBar + form + charges;
+    return html;
 }
 
+// ===== OPEN DSR MODAL (UNIFIED) =====
+function openDsrModal(mode, editIdx = null, prefill = null) {
+    document.getElementById('addShipmentDropdown').classList.remove('show');
+    addShipmentDropdownOpen = false;
+    dsrEditIdx = editIdx;
+
+    const body = document.getElementById('dsrModalBody');
+    let s = {};
+    let isEdit = false;
+
+    if (prefill) {
+        s = { ...prefill };
+    } else if (editIdx !== null && db.shipments && db.shipments[editIdx]) {
+        s = { ...db.shipments[editIdx] };
+        mode = s.mode || mode;
+        isEdit = true;
+    }
+
+    body.innerHTML = buildDsrForm(s, mode, isEdit);
+    document.getElementById('dsrModalTitle').textContent = `${mode} Shipment ~ DSR`;
+    openModal('dsrModal');
+
+    setTimeout(() => {
+        const visibleCarriers = ['ALL', ...db.carriers.filter(c => !(db.hiddenItems.carriers || []).includes(c))];
+        const visiblePol = db.pol.filter(p => !(db.hiddenItems.pol || []).includes(p));
+        const visiblePod = db.pod.filter(p => !(db.hiddenItems.pod || []).includes(p));
+        populateSelect('dsr-pol', visiblePol, s.pol);
+        populateSelect('dsr-pod', visiblePod, s.pod);
+        populateSelect('dsr-liner', visibleCarriers, s.liner);
+
+        renderDsrCharges(mode, s);
+    }, 100);
+}
+
+// ===== DSR MODE SWITCH & CHARGES RENDER =====
+function changeDsrMode() {
+    const mode = document.getElementById('dsr-mode').value;
+    renderDsrCharges(mode, {});
+}
+
+function renderDsrCharges(mode, s = {}) {
+    const area = document.getElementById('dsr-charges-area');
+    if (!area) return;
+
+    if (mode === 'SEA') {
+        area.innerHTML = `
+        <div style="display:flex; flex-direction:row; gap:10px; margin-bottom:12px; align-items:start;">
+            <div class="form-group" style="flex:1; margin:0; min-width:0;">
+                <label class="green-label" style="display:block; text-align:center; background:#008000; color:white; padding:6px 0; font-size:0.9rem;">SELL</label>
+                <input type="number" id="sea-sell" value="0" oninput="calcSeaMargin()" step="0.01" style="width:100%; padding:6px; border:3px solid #d1d5db; border-radius:4px; background:white; color:#1a1a1a;" />
+            </div>
+            <div class="form-group" style="flex:1; margin:0; min-width:0;">
+                <label class="red-label" style="display:block; text-align:center; background:#dc2626; color:white; padding:6px 0; font-size:0.9rem;">BUY</label>
+                <input type="number" id="sea-buy" value="0" oninput="calcSeaMargin()" step="0.01" style="width:100%; padding:6px; border:3px solid #d1d5db; border-radius:4px; background:white; color:#1a1a1a;" />
+            </div>
+            <div class="form-group" style="flex:1; margin:0; min-width:0;">
+                <label class="darkblue-label" style="display:block; text-align:center; background:#0f172a; color:white; padding:6px 0; font-size:0.9rem;">MARGIN</label>
+                <input type="text" id="sea-margin" value="0.00" readonly style="width:100%; padding:6px; border:3px solid #d1d5db; border-radius:4px; background:#ffff00; font-weight:700; color:#1a1a1a;" />
+            </div>
+        </div>
+        <div class="dsr-section-title green-title">Carrier - Local Charges</div>
+        <div class="dsr-charges-grid" style="margin-bottom:12px;">
+            <div class="form-group"><label class="teal">THC</label><input type="number" id="sea-thc" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">SEAWAY</label><input type="number" id="sea-seaway" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">SEAL</label><input type="number" id="sea-seal" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">ETS</label><input type="number" id="sea-ets" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">MUC</label><input type="number" id="sea-muc" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">HAZ DOCS</label><input type="number" id="sea-hazdocs" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">DOCS</label><input type="number" id="sea-docs" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">AMS</label><input type="number" id="sea-ams" value="0" step="0.01" /></div>
+        </div>
+        <div class="dsr-section-title darkblue-label">Other - Local Charges</div>
+        <div class="dsr-charges-grid">
+            <div class="form-group"><label class="teal">CFS</label><input type="number" id="sea-cfs" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">GR. WEIGHT</label><input type="number" id="sea-grweight" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">CLEARANCE</label><input type="number" id="sea-clearance" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">TRANSPORTATION</label><input type="number" id="sea-transport" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">VGM</label><input type="number" id="sea-vgm" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">LOLO</label><input type="number" id="sea-lolo" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">TOLL</label><input type="number" id="sea-toll" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">OTHER LOCAL</label><input type="number" id="sea-otherlocal" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">LASHING & CHOKING</label><input type="number" id="sea-lascho" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">OTHER LOCAL 2</label><input type="number" id="sea-otherlocal2" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">HAZ STICKER</label><input type="number" id="sea-hazsticker" value="0" step="0.01" /></div>
+            <div class="form-group"><label class="teal">OTHER LOCAL 3</label><input type="number" id="sea-otherlocal3" value="0" step="0.01" /></div>
+        </div>
+        `;
+        setTimeout(() => {
+            if (document.getElementById('sea-sell')) document.getElementById('sea-sell').value = s.sell || 0;
+            if (document.getElementById('sea-buy')) document.getElementById('sea-buy').value = s.buy || 0;
+            if (document.getElementById('sea-thc')) document.getElementById('sea-thc').value = s.carrierCharges?.THC || 0;
+            if (document.getElementById('sea-seaway')) document.getElementById('sea-seaway').value = s.carrierCharges?.SEAWAY || 0;
+            if (document.getElementById('sea-seal')) document.getElementById('sea-seal').value = s.carrierCharges?.SEAL || 0;
+            if (document.getElementById('sea-ets')) document.getElementById('sea-ets').value = s.carrierCharges?.ETS || 0;
+            if (document.getElementById('sea-muc')) document.getElementById('sea-muc').value = s.carrierCharges?.MUC || 0;
+            if (document.getElementById('sea-hazdocs')) document.getElementById('sea-hazdocs').value = s.carrierCharges?.HAZDOCS || 0;
+            if (document.getElementById('sea-docs')) document.getElementById('sea-docs').value = s.carrierCharges?.DOCS || 0;
+            if (document.getElementById('sea-ams')) document.getElementById('sea-ams').value = s.carrierCharges?.AMS || 0;
+            if (document.getElementById('sea-cfs')) document.getElementById('sea-cfs').value = s.otherCharges?.CFS || 0;
+            if (document.getElementById('sea-grweight')) document.getElementById('sea-grweight').value = s.otherCharges?.GRWEIGHT || 0;
+            if (document.getElementById('sea-clearance')) document.getElementById('sea-clearance').value = s.otherCharges?.CLEARANCE || 0;
+            if (document.getElementById('sea-transport')) document.getElementById('sea-transport').value = s.otherCharges?.TRANSPORTATION || 0;
+            if (document.getElementById('sea-vgm')) document.getElementById('sea-vgm').value = s.otherCharges?.VGM || 0;
+            if (document.getElementById('sea-lolo')) document.getElementById('sea-lolo').value = s.otherCharges?.LOLO || 0;
+            if (document.getElementById('sea-toll')) document.getElementById('sea-toll').value = s.otherCharges?.TOLL || 0;
+            if (document.getElementById('sea-otherlocal')) document.getElementById('sea-otherlocal').value = s.otherCharges?.OTHERLOCAL || 0;
+            if (document.getElementById('sea-lascho')) document.getElementById('sea-lascho').value = s.otherCharges?.LASCHO || 0;
+            if (document.getElementById('sea-otherlocal2')) document.getElementById('sea-otherlocal2').value = s.otherCharges?.OTHERLOCAL2 || 0;
+            if (document.getElementById('sea-hazsticker')) document.getElementById('sea-hazsticker').value = s.otherCharges?.HAZSTICKER || 0;
+            if (document.getElementById('sea-otherlocal3')) document.getElementById('sea-otherlocal3').value = s.otherCharges?.OTHERLOCAL3 || 0;
+            calcSeaMargin();
+        }, 50);
+    } else if (mode === 'AIR') {
+        area.innerHTML = `
+        <div class="dsr-section-title teal-title">QUOTE CHARGES</div>
+        <div class="dsr-air-charges-grid">
+            <div class="charge-item"><label>Sell PK</label><input type="number" id="air-sellpk" value="0" oninput="calcAirMargin()" step="0.01" style="background:#008000;color:white;font-weight:700;" /></div>
+            <div class="charge-item"><label>Buy PK</label><input type="number" id="air-buy pk" value="0" oninput="calcAirMargin()" step="0.01" style="background:#ff0000;color:white;font-weight:700;" /></div>
+            <div class="charge-item"><label>Margin</label><input type="text" id="air-margin" value="0.00" readonly style="background:#ffff00;font-weight:700;color:#1a1a1a;" /></div>
+            <div class="charge-item"><label>DG AGENT</label><input type="number" id="air-dgagent" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>TOTAL FRT</label><input type="number" id="air-totalfrt" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>AWB</label><input type="number" id="air-awb" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>GATE PASS</label><input type="number" id="air-gatepass" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>EXT-2</label><input type="number" id="air-ext2" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>CARTAGE</label><input type="number" id="air-cartage" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>TEDI</label><input type="number" id="air-tedi" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>CLEARANCE</label><input type="number" id="air-clearance" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>EXT-3</label><input type="number" id="air-ext3" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>MCC</label><input type="number" id="air-mcc" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>AMS</label><input type="number" id="air-ams" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>TRANSPORT</label><input type="number" id="air-transport" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>EXT-4</label><input type="number" id="air-ext4" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>X-RAY</label><input type="number" id="air-xray" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>DG FEE</label><input type="number" id="air-dgfee" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>PALLET</label><input type="number" id="air-pallet" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>EXT-5</label><input type="number" id="air-ext5" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>ASI</label><input type="number" id="air-asi" value="0" step="0.01" /></div>
+            <div class="charge-item"><label>EXT-6</label><input type="number" id="air-ext6" value="0" step="0.01" /></div>
+        </div>`;
+
+        setTimeout(() => {
+            if (document.getElementById('air-sellpk')) document.getElementById('air-sellpk').value = s.sellPK || 0;
+            if (document.getElementById('air-buy pk')) document.getElementById('air-buy pk').value = s.buyPK || 0;
+            if (document.getElementById('air-dgagent')) document.getElementById('air-dgagent').value = s.quoteCharges?.DGAGENT || 0;
+            if (document.getElementById('air-totalfrt')) document.getElementById('air-totalfrt').value = s.quoteCharges?.TOTALFRT || 0;
+            if (document.getElementById('air-awb')) document.getElementById('air-awb').value = s.quoteCharges?.AWB || 0;
+            if (document.getElementById('air-gatepass')) document.getElementById('air-gatepass').value = s.quoteCharges?.GATEPASS || 0;
+            if (document.getElementById('air-ext2')) document.getElementById('air-ext2').value = s.quoteCharges?.EXT2 || 0;
+            if (document.getElementById('air-cartage')) document.getElementById('air-cartage').value = s.quoteCharges?.CARTAGE || 0;
+            if (document.getElementById('air-tedi')) document.getElementById('air-tedi').value = s.quoteCharges?.TEDI || 0;
+            if (document.getElementById('air-clearance')) document.getElementById('air-clearance').value = s.quoteCharges?.CLEARANCE || 0;
+            if (document.getElementById('air-ext3')) document.getElementById('air-ext3').value = s.quoteCharges?.EXT3 || 0;
+            if (document.getElementById('air-mcc')) document.getElementById('air-mcc').value = s.quoteCharges?.MCC || 0;
+            if (document.getElementById('air-ams')) document.getElementById('air-ams').value = s.quoteCharges?.AMS || 0;
+            if (document.getElementById('air-transport')) document.getElementById('air-transport').value = s.quoteCharges?.TRANSPORT || 0;
+            if (document.getElementById('air-ext4')) document.getElementById('air-ext4').value = s.quoteCharges?.EXT4 || 0;
+            if (document.getElementById('air-xray')) document.getElementById('air-xray').value = s.quoteCharges?.XRAY || 0;
+            if (document.getElementById('air-dgfee')) document.getElementById('air-dgfee').value = s.quoteCharges?.DGFEE || 0;
+            if (document.getElementById('air-pallet')) document.getElementById('air-pallet').value = s.quoteCharges?.PALLET || 0;
+            if (document.getElementById('air-ext5')) document.getElementById('air-ext5').value = s.quoteCharges?.EXT5 || 0;
+            if (document.getElementById('air-asi')) document.getElementById('air-asi').value = s.quoteCharges?.ASI || 0;
+            if (document.getElementById('air-ext6')) document.getElementById('air-ext6').value = s.quoteCharges?.EXT6 || 0;
+            calcAirMargin();
+        }, 50);
+    }
+}
+
+// ===== DSR HELPER FUNCTIONS =====
 function calcSeaMargin() {
     const sell = parseFloat(document.getElementById('sea-sell').value) || 0;
     const buy = parseFloat(document.getElementById('sea-buy').value) || 0;
     document.getElementById('sea-margin').value = (sell - buy).toFixed(2);
 }
-
-function seaDsrSearch() { closeModal('seaDsrModal'); const s = document.getElementById('dsr-search'); if(s){s.focus();s.select();} }
-function seaDsrModify() {
-    const code = document.getElementById('sea-code').value;
-    if (!code) return alert('No shipment to modify.');
-    const idx = db.shipments.findIndex(s => s.code === code && s.type === 'SEA');
-    if (idx === -1) return alert('Shipment not found.');
-    closeModal('seaDsrModal'); openSeaDsrModal(idx);
+function calcAirMargin() {
+    const sell = parseFloat(document.getElementById('air-sellpk').value) || 0;
+    const buy = parseFloat(document.getElementById('air-buy pk').value) || 0;
+    document.getElementById('air-margin').value = (sell - buy).toFixed(2);
 }
-function seaDsrAddNew() { closeModal('seaDsrModal'); openSeaDsrModal(null); }
-function seaDsrClear() {
+
+function dsrSearch() {
+    closeModal('dsrModal');
+    const s = document.getElementById('dsr-search');
+    if (s) { s.focus();
+        s.select(); }
+}
+
+function dsrModify() {
+    const code = document.getElementById('dsr-job-no').value.trim() || document.getElementById('dsr-code').value.trim();
+    if (!code) return alert('No shipment to modify.');
+    const idx = db.shipments.findIndex(s => s.jobNo === code || s.code === code);
+    if (idx === -1) return alert('Shipment not found.');
+    closeModal('dsrModal');
+    openDsrModal(db.shipments[idx].mode, idx);
+}
+
+function dsrAddNew() {
+    closeModal('dsrModal');
+    openDsrModal('SEA');
+}
+
+function dsrClear() {
     if (confirm('Clear all fields?')) {
-        document.querySelectorAll('#seaDsrBody input, #seaDsrBody select').forEach(el => {
+        document.querySelectorAll('#dsrModalBody input, #dsrModalBody select, #dsrModalBody textarea').forEach(el => {
             if (el.tagName === 'SELECT') el.selectedIndex = 0;
             else if (el.type === 'number') el.value = '0';
-            else if (el.type === 'date' || el.type === 'datetime-local') el.value = '';
+            else if (el.type === 'date') el.value = '';
             else el.value = '';
         });
-        document.getElementById('sea-code').value = 'SR-' + Date.now().toString(36).toUpperCase();
-        document.getElementById('sea-sell').value = '0';
-        document.getElementById('sea-buy').value = '0';
-        document.getElementById('sea-margin').value = '0.00';
-        seaDsrEditIdx = null;
+        document.getElementById('dsr-code').value = '';
+        document.getElementById('dsr-job-no').value = '';
+        dsrEditIdx = null;
     }
 }
 
-function saveSeaDsrShipment(isUpdate) {
-    const code = document.getElementById('sea-code').value.trim();
-    const shipper = document.getElementById('sea-shipper').value.trim();
-    const pol = document.getElementById('sea-pol').value;
-    const pod = document.getElementById('sea-pod').value;
-    const booking = document.getElementById('sea-booking').value.trim();
-    const cargoStatus = document.getElementById('sea-cargo-status').value;
+function dsrDuplicate() {
+    const code = document.getElementById('dsr-job-no').value.trim() || document.getElementById('dsr-code').value.trim();
+    if (!code) return alert('No shipment to duplicate.');
+    const idx = db.shipments.findIndex(s => s.jobNo === code || s.code === code);
+    if (idx === -1) return alert('Shipment not found.');
+    const copy = JSON.parse(JSON.stringify(db.shipments[idx]));
+    copy.code = (copy.mode === 'SEA' ? 'SR-' : 'AR-') + Date.now().toString(36).toUpperCase();
+    copy.jobNo = copy.code;
+    copy.createdAt = new Date().toISOString();
+    copy.lastModified = new Date().toISOString();
+    db.shipments.push(copy);
+    saveDB();
+    closeModal('dsrModal');
+    renderShipments();
+    alert('Shipment duplicated! New JOB NO: ' + copy.code);
+    autoBackup();
+}
 
-    if (!code || !shipper || !pol || !pod || !booking || !cargoStatus) {
-        alert('Mandatory fields: Code, Shipper, POL, POD, Booking No, Cargo Status');
+function dsrDelete() {
+    const code = document.getElementById('dsr-job-no').value.trim() || document.getElementById('dsr-code').value.trim();
+    if (!code) return alert('No shipment to delete.');
+    const idx = db.shipments.findIndex(s => s.jobNo === code || s.code === code);
+    if (idx === -1) return alert('Shipment not found.');
+    if (confirm(`Delete shipment "${code}"?`)) {
+        db.shipments.splice(idx, 1);
+        saveDB();
+        closeModal('dsrModal');
+        renderShipments();
+        alert('Shipment deleted.');
+        autoBackup();
+    }
+}
+
+function dsrPDF() {
+    const code = document.getElementById('dsr-job-no').value.trim() || document.getElementById('dsr-code').value.trim();
+    if (!code) return alert('No shipment data to generate PDF.');
+    const idx = db.shipments.findIndex(s => s.jobNo === code || s.code === code);
+    if (idx === -1) return alert('Shipment not found.');
+    const s = db.shipments[idx];
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
+    doc.setFontSize(16);
+    doc.text(`${s.mode} SHIPMENT DSR`, 105, 20, { align: 'center' });
+    doc.setFontSize(10);
+    let y = 35;
+    const fields = [
+        ['Job No', s.jobNo || s.code],
+        ['Shipper', s.shipper],
+        ['POL', s.pol],
+        ['POD', s.pod],
+        ['Shipping Line', s.liner],
+        ['ETD', s.etd],
+        ['ETA', s.eta],
+        ['Cargo Status', s.cargoStatus],
+        ['Docs Status', s.docsStatus]
+    ];
+    fields.forEach(([label, value]) => {
+        doc.text(`${label}: ${value || '-'}`, 14, y);
+        y += 7;
+    });
+    doc.save(`${s.mode}_Shipment_${s.code}.pdf`);
+}
+
+// ===== UNIFIED DSR SAVER =====
+function saveDsrShipment(isUpdate) {
+    const mode = document.getElementById('dsr-mode').value;
+    const jobNo = document.getElementById('dsr-job-no').value.trim();
+    const shipper = document.getElementById('dsr-shipper').value.trim();
+    const pol = document.getElementById('dsr-pol').value;
+    const pod = document.getElementById('dsr-pod').value;
+    const liner = document.getElementById('dsr-liner').value;
+
+    if (!jobNo || !shipper || !pol || !pod || !liner) {
+        alert('Mandatory fields: JOB NO, Shipper, POL, POD, Shipping Line');
         return;
     }
 
-    const sell = parseFloat(document.getElementById('sea-sell').value) || 0;
-    const buy = parseFloat(document.getElementById('sea-buy').value) || 0;
+    let code = document.getElementById('dsr-code').value.trim();
+    if (!code) {
+        code = (mode === 'SEA' ? 'SR-' : 'AR-') + Date.now().toString(36).toUpperCase();
+    }
 
     const data = {
-        type: 'SEA',
-        code: code,
+        mode: mode,
+        exportImport: document.getElementById('dsr-direction').value,
+        service1: document.getElementById('dsr-service-a').value,
+        service2: document.getElementById('dsr-service-b').value,
+        jobNo: jobNo,
+        date: document.getElementById('dsr-date').value,
         shipper: shipper,
-        cargoStatus: cargoStatus,
-        docsStatus: document.getElementById('sea-docs-status').value,
+        packages: document.getElementById('dsr-packages').value.trim(),
         pol: pol,
         pod: pod,
-        bookingNo: booking,
-        containerNo: document.getElementById('sea-container').value.trim(),
-        etd: document.getElementById('sea-etd').value,
-        eta: document.getElementById('sea-eta').value,
-        pickup: document.getElementById('sea-pickup').value,
-        gatein: document.getElementById('sea-gatein').value,
-        liner: document.getElementById('sea-liner').value,
-        invoiceType: document.getElementById('sea-invoice-type').value,
-        incoterm: document.getElementById('sea-incoterm').value,
-        commodity: document.getElementById('sea-commodity').value.trim(),
-        sell: sell,
-        buy: buy,
-        margin: sell - buy,
-        carrierCharges: {
+        liner: liner,
+        etd: document.getElementById('dsr-etd').value,
+        shippingBillNo: document.getElementById('dsr-shipping-bill-no').value.trim(),
+        shippingBillDate: document.getElementById('dsr-shipping-bill-date').value,
+        mblNo: document.getElementById('dsr-mbl-no').value.trim(),
+        hblNo: document.getElementById('dsr-hbl-no').value.trim(),
+        pickupDate: document.getElementById('dsr-pickup-date').value,
+        clearanceDate: document.getElementById('dsr-clearance-date').value,
+        docsHandDate: document.getElementById('dsr-docs-hand-date').value,
+        gateinDate: document.getElementById('dsr-gatein-date').value,
+        dgdIndexingDate: document.getElementById('dsr-dgd-indexing-date').value,
+        blReleaseDate: document.getElementById('dsr-bl-release-date').value,
+        vesselAtd: document.getElementById('dsr-vessel-atd').value.trim(),
+        eta: document.getElementById('dsr-eta').value,
+        remarks: document.getElementById('dsr-remarks').value.trim(),
+        code: code,
+        cargoStatus: document.getElementById('dsr-cargo-status').value,
+        docsStatus: document.getElementById('dsr-docs-status').value,
+        sales: getLoggedInUserName() || db.defaultUser || '',
+        lastModified: new Date().toISOString()
+    };
+
+    if (mode === 'SEA') {
+        data.sell = parseFloat(document.getElementById('sea-sell').value) || 0;
+        data.buy = parseFloat(document.getElementById('sea-buy').value) || 0;
+        data.margin = data.sell - data.buy;
+        data.carrierCharges = {
             THC: parseFloat(document.getElementById('sea-thc').value) || 0,
             SEAWAY: parseFloat(document.getElementById('sea-seaway').value) || 0,
             SEAL: parseFloat(document.getElementById('sea-seal').value) || 0,
@@ -2837,8 +3289,8 @@ function saveSeaDsrShipment(isUpdate) {
             HAZDOCS: parseFloat(document.getElementById('sea-hazdocs').value) || 0,
             DOCS: parseFloat(document.getElementById('sea-docs').value) || 0,
             AMS: parseFloat(document.getElementById('sea-ams').value) || 0
-        },
-        otherCharges: {
+        };
+        data.otherCharges = {
             CFS: parseFloat(document.getElementById('sea-cfs').value) || 0,
             CLEARANCE: parseFloat(document.getElementById('sea-clearance').value) || 0,
             VGM: parseFloat(document.getElementById('sea-vgm').value) || 0,
@@ -2851,330 +3303,12 @@ function saveSeaDsrShipment(isUpdate) {
             OTHERLOCAL: parseFloat(document.getElementById('sea-otherlocal').value) || 0,
             OTHERLOCAL2: parseFloat(document.getElementById('sea-otherlocal2').value) || 0,
             OTHERLOCAL3: parseFloat(document.getElementById('sea-otherlocal3').value) || 0
-        },
-        remarks: document.getElementById('sea-remarks').value.trim(),
-        date: new Date().toISOString().split('T')[0],
-        sales: getLoggedInUserName() || db.defaultUser || '',
-        lastModified: new Date().toISOString()
-    };
-
-    // Check for duplicate code
-    const existing = db.shipments.findIndex(s => s.code === code && s.type === 'SEA');
-    if (existing !== -1 && !isUpdate) {
-        if (!confirm(`Shipment code "${code}" already exists. Do you want to overwrite?`)) return;
-        db.shipments[existing] = { ...db.shipments[existing], ...data };
-    } else if (isUpdate && seaDsrEditIdx !== null) {
-        const idx = seaDsrEditIdx;
-        // Merge update – keep existing fields not present in the form
-        db.shipments[idx] = { ...db.shipments[idx], ...data };
+        };
     } else {
-        data.createdAt = new Date().toISOString();
-        db.shipments.push(data);
-    }
-
-    saveDB();
-    closeModal('seaDsrModal');
-    renderShipments();
-    alert('SEA Shipment saved successfully!');
-    autoBackup();
-}
-
-function seaDsrPrint() { window.print(); }
-function seaDsrPDF() {
-    const code = document.getElementById('sea-code').value;
-    if (!code) return alert('No shipment data to generate PDF.');
-    const idx = db.shipments.findIndex(s => s.code === code && s.type === 'SEA');
-    if (idx === -1) return alert('Shipment not found.');
-    const s = db.shipments[idx];
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    doc.setFontSize(16);
-    doc.text('SEA SHIPMENT DSR', 105, 20, { align: 'center' });
-    doc.setFontSize(10);
-    let y = 35;
-    const fields = [
-        ['Code', s.code],
-        ['Shipper', s.shipper],
-        ['POL', s.pol],
-        ['POD', s.pod],
-        ['Booking No.', s.bookingNo || s.jobBkg],
-        ['Container No.', s.containerNo],
-        ['ETD', s.etd || s.dd],
-        ['ETA', s.eta],
-        ['Liner', s.liner],
-        ['Cargo Status', s.cargoStatus],
-        ['Docs Status', s.docsStatus],
-        ['Sell', '₹ ' + (s.sell || 0).toFixed(2)],
-        ['Buy', '₹ ' + (s.buy || 0).toFixed(2)],
-        ['Margin', '₹ ' + ((s.sell || 0) - (s.buy || 0)).toFixed(2)]
-    ];
-    fields.forEach(([label, value]) => {
-        doc.text(`${label}: ${value || '-'}`, 14, y);
-        y += 7;
-    });
-    doc.save(`SEA_Shipment_${s.code}.pdf`);
-}
-
-function seaDsrDuplicate() {
-    const code = document.getElementById('sea-code').value;
-    if (!code) return alert('No shipment to duplicate.');
-    const idx = db.shipments.findIndex(s => s.code === code && s.type === 'SEA');
-    if (idx === -1) return alert('Shipment not found.');
-    const copy = JSON.parse(JSON.stringify(db.shipments[idx]));
-    copy.code = 'SR-' + Date.now().toString(36).toUpperCase();
-    copy.createdAt = new Date().toISOString();
-    copy.lastModified = new Date().toISOString();
-    db.shipments.push(copy);
-    saveDB();
-    closeModal('seaDsrModal');
-    renderShipments();
-    alert('SEA Shipment duplicated! New code: ' + copy.code);
-    autoBackup();
-}
-
-function seaDsrDelete() {
-    const code = document.getElementById('sea-code').value;
-    if (!code) return alert('No shipment to delete.');
-    const idx = db.shipments.findIndex(s => s.code === code && s.type === 'SEA');
-    if (idx === -1) return alert('Shipment not found.');
-    if (confirm(`Delete SEA shipment "${code}"?`)) {
-        db.shipments.splice(idx, 1);
-        saveDB();
-        closeModal('seaDsrModal');
-        renderShipments();
-        alert('Shipment deleted.');
-        autoBackup();
-    }
-}
-
-// ===== AIR DSR Popup =====
-let airDsrEditIdx = null;
-
-function openAirDsrModal(editIdx = null, prefill = null) {
-    document.getElementById('addShipmentDropdown').classList.remove('show');
-    addShipmentDropdownOpen = false;
-
-    airDsrEditIdx = editIdx;
-    const body = document.getElementById('airDsrBody');
-
-    let s = createEmptyAirShipment();
-    let isEdit = false;
-
-    if (prefill) {
-        s = { ...s, ...prefill };
-    } else if (editIdx !== null && db.shipments && db.shipments[editIdx] && db.shipments[editIdx].type === 'AIR') {
-        s = { ...db.shipments[editIdx] };
-        isEdit = true;
-    }
-
-    body.innerHTML = buildAirDsrForm(s, isEdit);
-    openModal('airDsrModal');
-    setTimeout(() => {
-        const first = body.querySelector('input, select');
-        if (first) first.focus();
-    }, 100);
-}
-
-function createEmptyAirShipment() {
-    return {
-        type: 'AIR',
-        code: 'AR-' + Date.now().toString(36).toUpperCase(),
-        shipper: '',
-        invoiceType: '',
-        pol: '',
-        pod: '',
-        incoterm: '',
-        bookingNo: '',
-        validEtd: '',
-        liner: '',
-        cargoStatus: 'Booked',
-        docsStatus: 'Pending',
-        commodity: '',
-        grossWeight: 0,
-        sellPK: 0,
-        buyPK: 0,
-        margin: 0,
-        quoteCharges: {
-            TOTALFRT: 0,
-            AWB: 0,
-            CARTAGE: 0,
-            TEDI: 0,
-            MCC: 0,
-            AMS: 0,
-            XRAY: 0,
-            DGFEE: 0,
-            ASI: 0,
-            GATEPASS: 0,
-            CLEARANCE: 0,
-            TRANSPORT: 0,
-            PALLET: 0,
-            DGAGENT: 0,
-            EXT2: 0,
-            EXT3: 0,
-            EXT4: 0,
-            EXT5: 0,
-            EXT6: 0
-        },
-        remarks: '',
-        date: new Date().toISOString().split('T')[0],
-        sales: db.defaultUser || ''
-    };
-}
-
-function buildAirDsrForm(s, isEdit) {
-    const carriers = db.carriers.filter(c => !(db.hiddenItems.carriers || []).includes(c)).sort();
-    const polList = db.pol.filter(p => !(db.hiddenItems.pol || []).includes(p)).sort();
-    const podList = db.pod.filter(p => !(db.hiddenItems.pod || []).includes(p)).sort();
-    const incoterms = db.incoterms.filter(i => !(db.hiddenItems.incoterms || []).includes(i)).sort();
-    const cargoM = db.cargoStatusMaster || ["Booked", "Confirmed", "In Transit", "Delivered", "Cancelled"];
-    const docsM = db.docsStatusMaster || ["Pending", "In Progress", "Ready", "Sent", "Received"];
-
-    const margin = (s.sellPK || 0) - (s.buyPK || 0);
-
-    // Button bar without Preview
-    let btnBar = `
-        <div class="dsr-btn-bar">
-            <button class="btn btn-search" onclick="airDsrSearch()">Search</button>
-            <button class="btn btn-modify" onclick="airDsrModify()">Modify</button>
-            <button class="btn btn-addnew" onclick="airDsrAddNew()">Add New</button>
-            <button class="btn btn-clear-dsr" onclick="airDsrClear()">Clear</button>
-            <button class="btn btn-exit" onclick="closeModal('airDsrModal')">Exit</button>
-            ${isEdit ? `<button class="btn btn-update-dsr" onclick="saveAirDsrShipment(true)">Update</button>` : `<button class="btn btn-save-dsr" onclick="saveAirDsrShipment(false)">Save</button>`}
-            <button class="btn btn-cancel-dsr" onclick="closeModal('airDsrModal')">Cancel</button>
-            <button class="btn btn-info" onclick="toggleDsrDesignMode()">🖱️ Layout</button>
-            <button class="btn btn-print-dsr" onclick="airDsrPrint()">Print</button>
-            <button class="btn btn-pdf-dsr" onclick="airDsrPDF()">PDF</button>
-            <button class="btn btn-dup-dsr" onclick="airDsrDuplicate()">Duplicate</button>
-            ${isEdit ? `<button class="btn btn-del-dsr" onclick="airDsrDelete()">Delete</button>` : ''}
-            <button class="btn btn-close-dsr" onclick="closeModal('airDsrModal')">Close</button>
-        </div>
-    `;
-
-    let form = `
-        <div class="dsr-form-grid cols-3">
-            <div class="dsr-field"><label>Code</label><input type="text" id="air-code" value="${s.code || ''}" /></div>
-            <div class="dsr-field" style="grid-column:span 2;"><label>Shipper</label><input type="text" id="air-shipper" value="${s.shipper || ''}" /></div>
-            <div class="dsr-field"><label>POL</label><select id="air-pol">${polList.map(p => `<option value="${p}" ${s.pol===p?'selected':''}>${p}</option>`).join('')}</select></div>
-            <div class="dsr-field"><label>POD</label><select id="air-pod">${podList.map(p => `<option value="${p}" ${s.pod===p?'selected':''}>${p}</option>`).join('')}</select></div>
-            <div class="dsr-field"><label>Invoice Type</label><select id="air-invoice-type"><option value="">Select</option><option value="SEA" ${s.invoiceType==='SEA'?'selected':''}>SEA</option><option value="AIR" ${s.invoiceType==='AIR'?'selected':''}>AIR</option><option value="LCL" ${s.invoiceType==='LCL'?'selected':''}>LCL</option></select></div>
-            <div class="dsr-field"><label>Incoterm</label><select id="air-incoterm">${incoterms.map(i => `<option value="${i}" ${s.incoterm===i?'selected':''}>${i}</option>`).join('')}</select></div>
-            <div class="dsr-field"><label>Booking No.</label><input type="text" id="air-booking" value="${s.bookingNo || s.jobBkg || ''}" /></div>
-            <div class="dsr-field"><label>Valid / ETD</label><input type="date" id="air-etd" value="${s.validEtd || s.dd || ''}" /></div>
-            <div class="dsr-field"><label>Liner</label><select id="air-liner">${carriers.map(c => `<option value="${c}" ${s.liner===c?'selected':''}>${c}</option>`).join('')}</select></div>
-            <div class="dsr-field"><label>Cargo Status</label><select id="air-cargo-status">
-                ${cargoM.map(st => `<option value="${st}" ${s.cargoStatus===st?'selected':''}>${st}</option>`).join('')}
-            </select></div>
-            <div class="dsr-field"><label>Docs Status</label><select id="air-docs-status">
-                ${docsM.map(st => `<option value="${st}" ${s.docsStatus===st?'selected':''}>${st}</option>`).join('')}
-            </select></div>
-            <div class="dsr-field"><label>Commodity</label><input type="text" id="air-commodity" value="${s.commodity || ''}" /></div>
-            <div class="dsr-field"><label>GR. Weight</label><input type="number" id="air-grossweight" value="${s.grossWeight || s.weight || 0}" step="0.01" /></div>
-        </div>
-    `;
-
-    let charges = `
-        <div class="dsr-section-title teal-title">QUOTE CHARGES</div>
-        <div class="dsr-air-charges-grid">
-            <div class="charge-item"><label>Sell PK</label><input type="number" id="air-sellpk" value="${s.sellPK||0}" oninput="calcAirMargin()" step="0.01" style="background:#008000;color:white;font-weight:700;" /></div>
-            <div class="charge-item"><label>Buy PK</label><input type="number" id="air-buy pk" value="${s.buyPK||0}" oninput="calcAirMargin()" step="0.01" style="background:#ff0000;color:white;font-weight:700;" /></div>
-            <div class="charge-item"><label>Margin</label><input type="text" id="air-margin" value="${margin.toFixed(2)}" readonly style="background:#ffff00;font-weight:700;color:#1a1a1a;" /></div>
-            <div class="charge-item"><label>DG AGENT</label><input type="number" id="air-dgagent" value="${s.quoteCharges?.DGAGENT||0}" step="0.01" /></div>
-            <div class="charge-item"><label>TOTAL FRT</label><input type="number" id="air-totalfrt" value="${s.quoteCharges?.TOTALFRT||0}" step="0.01" /></div>
-            <div class="charge-item"><label>AWB</label><input type="number" id="air-awb" value="${s.quoteCharges?.AWB||0}" step="0.01" /></div>
-            <div class="charge-item"><label>GATE PASS</label><input type="number" id="air-gatepass" value="${s.quoteCharges?.GATEPASS||0}" step="0.01" /></div>
-            <div class="charge-item"><label>EXT-2</label><input type="number" id="air-ext2" value="${s.quoteCharges?.EXT2||0}" step="0.01" /></div>
-            <div class="charge-item"><label>CARTAGE</label><input type="number" id="air-cartage" value="${s.quoteCharges?.CARTAGE||0}" step="0.01" /></div>
-            <div class="charge-item"><label>TEDI</label><input type="number" id="air-tedi" value="${s.quoteCharges?.TEDI||0}" step="0.01" /></div>
-            <div class="charge-item"><label>CLEARANCE</label><input type="number" id="air-clearance" value="${s.quoteCharges?.CLEARANCE||0}" step="0.01" /></div>
-            <div class="charge-item"><label>EXT-3</label><input type="number" id="air-ext3" value="${s.quoteCharges?.EXT3||0}" step="0.01" /></div>
-            <div class="charge-item"><label>MCC</label><input type="number" id="air-mcc" value="${s.quoteCharges?.MCC||0}" step="0.01" /></div>
-            <div class="charge-item"><label>AMS</label><input type="number" id="air-ams" value="${s.quoteCharges?.AMS||0}" step="0.01" /></div>
-            <div class="charge-item"><label>TRANSPORT</label><input type="number" id="air-transport" value="${s.quoteCharges?.TRANSPORT||0}" step="0.01" /></div>
-            <div class="charge-item"><label>EXT-4</label><input type="number" id="air-ext4" value="${s.quoteCharges?.EXT4||0}" step="0.01" /></div>
-            <div class="charge-item"><label>X-RAY</label><input type="number" id="air-xray" value="${s.quoteCharges?.XRAY||0}" step="0.01" /></div>
-            <div class="charge-item"><label>DG FEE</label><input type="number" id="air-dgfee" value="${s.quoteCharges?.DGFEE||0}" step="0.01" /></div>
-            <div class="charge-item"><label>PALLET</label><input type="number" id="air-pallet" value="${s.quoteCharges?.PALLET||0}" step="0.01" /></div>
-            <div class="charge-item"><label>EXT-5</label><input type="number" id="air-ext5" value="${s.quoteCharges?.EXT5||0}" step="0.01" /></div>
-            <div class="charge-item"><label>ASI</label><input type="number" id="air-asi" value="${s.quoteCharges?.ASI||0}" step="0.01" /></div>
-            <div class="charge-item"><label></label><input type="text" style="background:transparent;border:none;" disabled /></div>
-            <div class="charge-item"><label></label><input type="text" style="background:transparent;border:none;" disabled /></div>
-            <div class="charge-item"><label>EXT-6</label><input type="number" id="air-ext6" value="${s.quoteCharges?.EXT6||0}" step="0.01" /></div>
-        </div>
-
-        <div style="margin-top:8px;">
-            <div class="dsr-field"><label>Remarks</label><input type="text" id="air-remarks" value="${s.remarks||''}" style="flex:1;padding:3px 6px;border:1px solid #999;border-radius:0;font-size:0.75rem;background:white;color:#1a1a1a;" /></div>
-        </div>
-    `;
-
-    return btnBar + form + charges;
-}
-
-function calcAirMargin() {
-    const sell = parseFloat(document.getElementById('air-sellpk').value) || 0;
-    const buy = parseFloat(document.getElementById('air-buy pk').value) || 0;
-    document.getElementById('air-margin').value = (sell - buy).toFixed(2);
-}
-
-function airDsrSearch() { closeModal('airDsrModal'); const s = document.getElementById('dsr-search'); if(s){s.focus();s.select();} }
-function airDsrModify() {
-    const code = document.getElementById('air-code').value;
-    if (!code) return alert('No shipment to modify.');
-    const idx = db.shipments.findIndex(s => s.code === code && s.type === 'AIR');
-    if (idx === -1) return alert('Shipment not found.');
-    closeModal('airDsrModal'); openAirDsrModal(idx);
-}
-function airDsrAddNew() { closeModal('airDsrModal'); openAirDsrModal(null); }
-function airDsrClear() {
-    if (confirm('Clear all fields?')) {
-        document.querySelectorAll('#airDsrBody input, #airDsrBody select').forEach(el => {
-            if (el.tagName === 'SELECT') el.selectedIndex = 0;
-            else if (el.type === 'number') el.value = '0';
-            else if (el.type === 'date' || el.type === 'datetime-local') el.value = '';
-            else el.value = '';
-        });
-        document.getElementById('air-code').value = 'AR-' + Date.now().toString(36).toUpperCase();
-        document.getElementById('air-sellpk').value = '0';
-        document.getElementById('air-buy pk').value = '0';
-        document.getElementById('air-margin').value = '0.00';
-        airDsrEditIdx = null;
-    }
-}
-
-function saveAirDsrShipment(isUpdate) {
-    const code = document.getElementById('air-code').value.trim();
-    const shipper = document.getElementById('air-shipper').value.trim();
-    const pol = document.getElementById('air-pol').value;
-    const pod = document.getElementById('air-pod').value;
-    const booking = document.getElementById('air-booking').value.trim();
-    const cargoStatus = document.getElementById('air-cargo-status').value;
-
-    if (!code || !shipper || !pol || !pod || !booking || !cargoStatus) {
-        alert('Mandatory fields: Code, Shipper, POL, POD, Booking No, Cargo Status');
-        return;
-    }
-
-    const sellPK = parseFloat(document.getElementById('air-sellpk').value) || 0;
-    const buyPK = parseFloat(document.getElementById('air-buy pk').value) || 0;
-
-    const data = {
-        type: 'AIR',
-        code: code,
-        shipper: shipper,
-        invoiceType: document.getElementById('air-invoice-type').value,
-        pol: pol,
-        pod: pod,
-        incoterm: document.getElementById('air-incoterm').value,
-        bookingNo: booking,
-        validEtd: document.getElementById('air-etd').value,
-        liner: document.getElementById('air-liner').value,
-        cargoStatus: cargoStatus,
-        docsStatus: document.getElementById('air-docs-status').value,
-        commodity: document.getElementById('air-commodity').value.trim(),
-        grossWeight: parseFloat(document.getElementById('air-grossweight').value) || 0,
-        sellPK: sellPK,
-        buyPK: buyPK,
-        margin: sellPK - buyPK,
-        quoteCharges: {
+        data.sellPK = parseFloat(document.getElementById('air-sellpk').value) || 0;
+        data.buyPK = parseFloat(document.getElementById('air-buy pk').value) || 0;
+        data.margin = data.sellPK - data.buyPK;
+        data.quoteCharges = {
             TOTALFRT: parseFloat(document.getElementById('air-totalfrt').value) || 0,
             AWB: parseFloat(document.getElementById('air-awb').value) || 0,
             CARTAGE: parseFloat(document.getElementById('air-cartage').value) || 0,
@@ -3194,112 +3328,50 @@ function saveAirDsrShipment(isUpdate) {
             EXT4: parseFloat(document.getElementById('air-ext4').value) || 0,
             EXT5: parseFloat(document.getElementById('air-ext5').value) || 0,
             EXT6: parseFloat(document.getElementById('air-ext6').value) || 0
-        },
-        remarks: document.getElementById('air-remarks').value.trim(),
-        date: new Date().toISOString().split('T')[0],
-        sales: getLoggedInUserName() || db.defaultUser || '',
-        lastModified: new Date().toISOString()
-    };
+        };
+    }
 
-    const existing = db.shipments.findIndex(s => s.code === code && s.type === 'AIR');
+    const existing = db.shipments.findIndex(s => s.code === code && s.mode === mode);
     if (existing !== -1 && !isUpdate) {
         if (!confirm(`Shipment code "${code}" already exists. Do you want to overwrite?`)) return;
         db.shipments[existing] = { ...db.shipments[existing], ...data };
-    } else if (isUpdate && airDsrEditIdx !== null) {
-        const idx = airDsrEditIdx;
-        db.shipments[idx] = { ...db.shipments[idx], ...data };
+    } else if (isUpdate && dsrEditIdx !== null) {
+        const idx = dsrEditIdx;
+        if (idx !== undefined && db.shipments[idx]) {
+            db.shipments[idx] = { ...db.shipments[idx], ...data };
+        } else {
+            alert('Edit index not found.');
+            return;
+        }
     } else {
         data.createdAt = new Date().toISOString();
         db.shipments.push(data);
     }
 
     saveDB();
-    closeModal('airDsrModal');
+    closeModal('dsrModal');
     renderShipments();
-    alert('AIR Shipment saved successfully!');
+    alert(`${mode} Shipment saved successfully!`);
     autoBackup();
 }
 
-function airDsrPrint() { window.print(); }
-function airDsrPDF() {
-    const code = document.getElementById('air-code').value;
-    if (!code) return alert('No shipment data to generate PDF.');
-    const idx = db.shipments.findIndex(s => s.code === code && s.type === 'AIR');
-    if (idx === -1) return alert('Shipment not found.');
+// ===== EDIT DSR SHIPMENT (CLICK FROM LIST) =====
+function editDsrShipment(idx) {
     const s = db.shipments[idx];
-    const { jsPDF } = window.jspdf;
-    const doc = new jsPDF({ unit: 'mm', format: 'a4' });
-    doc.setFontSize(16);
-    doc.text('AIR SHIPMENT DSR', 105, 20, { align: 'center' });
-    doc.setFontSize(10);
-    let y = 35;
-    const fields = [
-        ['Code', s.code],
-        ['Shipper', s.shipper],
-        ['POL', s.pol],
-        ['POD', s.pod],
-        ['Booking No.', s.bookingNo || s.jobBkg],
-        ['Valid ETD', s.validEtd || s.dd],
-        ['Liner', s.liner],
-        ['Cargo Status', s.cargoStatus],
-        ['Docs Status', s.docsStatus],
-        ['Sell PK', '₹ ' + (s.sellPK || 0).toFixed(2)],
-        ['Buy PK', '₹ ' + (s.buyPK || 0).toFixed(2)],
-        ['Margin', '₹ ' + ((s.sellPK || 0) - (s.buyPK || 0)).toFixed(2)]
-    ];
-    fields.forEach(([label, value]) => {
-        doc.text(`${label}: ${value || '-'}`, 14, y);
-        y += 7;
-    });
-    doc.save(`AIR_Shipment_${s.code}.pdf`);
+    if (!s) return alert('Shipment not found.');
+    openDsrModal(s.mode, idx);
 }
 
-function airDsrDuplicate() {
-    const code = document.getElementById('air-code').value;
-    if (!code) return alert('No shipment to duplicate.');
-    const idx = db.shipments.findIndex(s => s.code === code && s.type === 'AIR');
-    if (idx === -1) return alert('Shipment not found.');
-    const copy = JSON.parse(JSON.stringify(db.shipments[idx]));
-    copy.code = 'AR-' + Date.now().toString(36).toUpperCase();
-    copy.createdAt = new Date().toISOString();
-    copy.lastModified = new Date().toISOString();
-    db.shipments.push(copy);
-    saveDB();
-    closeModal('airDsrModal');
-    renderShipments();
-    alert('AIR Shipment duplicated! New code: ' + copy.code);
-    autoBackup();
-}
-
-function airDsrDelete() {
-    const code = document.getElementById('air-code').value;
-    if (!code) return alert('No shipment to delete.');
-    const idx = db.shipments.findIndex(s => s.code === code && s.type === 'AIR');
-    if (idx === -1) return alert('Shipment not found.');
-    if (confirm(`Delete AIR shipment "${code}"?`)) {
-        db.shipments.splice(idx, 1);
-        saveDB();
-        closeModal('airDsrModal');
-        renderShipments();
-        alert('Shipment deleted.');
-        autoBackup();
-    }
-}
-
-// ===== Enhanced Shipment List Rendering (with sections & pagination) =====
+// ===== Shipment List Rendering =====
 function renderShipments() {
     const search = (document.getElementById('dsr-search')?.value || '').toLowerCase();
     const typeFilter = document.getElementById('dsr-type-filter')?.value || '';
     const statusFilter = document.getElementById('dsr-status-filter')?.value || '';
     const sortMode = document.getElementById('dsr-sort')?.value || 'date-desc';
     const perPage = parseInt(document.getElementById('dsr-per-page')?.value) || 25;
-
     const list = document.getElementById('dsr-list');
     const pagination = document.getElementById('dsr-pagination');
-
     let shipments = db.shipments || [];
-
-    // Filter
     shipments = shipments.filter(s => {
         const text = `${s.code||''} ${s.shipper||''} ${s.pol||''} ${s.pod||''} ${s.bookingNo||s.jobBkg||''} ${s.containerNo||''}`.toLowerCase();
         if (search && !text.includes(search)) return false;
@@ -3307,21 +3379,24 @@ function renderShipments() {
         if (statusFilter && s.cargoStatus !== statusFilter) return false;
         return true;
     });
-
-    // Sort
     shipments.sort((a, b) => {
         switch (sortMode) {
-            case 'date-desc': return new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0);
-            case 'date-asc': return new Date(a.date || a.createdAt || 0) - new Date(b.date || b.createdAt || 0);
-            case 'code': return (a.code || '').localeCompare(b.code || '');
-            case 'shipper': return (a.shipper || '').localeCompare(b.shipper || '');
-            case 'pol': return (a.pol || '').localeCompare(b.pol || '');
-            case 'pod': return (a.pod || '').localeCompare(b.pod || '');
-            default: return 0;
+            case 'date-desc':
+                return new Date(b.date || b.createdAt || 0) - new Date(a.date || a.createdAt || 0);
+            case 'date-asc':
+                return new Date(a.date || a.createdAt || 0) - new Date(b.date || b.createdAt || 0);
+            case 'code':
+                return (a.code || '').localeCompare(b.code || '');
+            case 'shipper':
+                return (a.shipper || '').localeCompare(b.shipper || '');
+            case 'pol':
+                return (a.pol || '').localeCompare(b.pol || '');
+            case 'pod':
+                return (a.pod || '').localeCompare(b.pod || '');
+            default:
+                return 0;
         }
     });
-
-    // Pagination
     const total = shipments.length;
     const perPageVal = perPage === 0 ? total : perPage;
     const totalPages = perPageVal > 0 ? Math.ceil(total / perPageVal) : 1;
@@ -3331,38 +3406,26 @@ function renderShipments() {
     sessionStorage.setItem('dsrPage', String(page));
     const start = (page - 1) * perPageVal;
     const pageData = shipments.slice(start, start + perPageVal);
-
     if (total === 0) {
         list.innerHTML = '<p style="color:var(--text-light);padding:20px;text-align:center;">No shipments found.</p>';
         pagination.innerHTML = '';
         return;
     }
-
-    // Separate into SEA and AIR
     const seaData = pageData.filter(s => s.type === 'SEA');
     const airData = pageData.filter(s => s.type === 'AIR');
-
     let html = '';
-
-    // SEA section
     if (seaData.length > 0) {
         html += `<div class="dsr-section-header sea-header">🚢 SEA Shipments <span class="badge">${seaData.length}</span></div>`;
         html += buildShipmentTable(seaData, 'SEA');
     }
-
-    // AIR section
     if (airData.length > 0) {
         html += `<div class="dsr-section-header">✈️ AIR Shipments <span class="badge">${airData.length}</span></div>`;
         html += buildShipmentTable(airData, 'AIR');
     }
-
     if (!html) {
         html = '<p style="color:var(--text-light);padding:20px;text-align:center;">No shipments match your filters.</p>';
     }
-
     list.innerHTML = html;
-
-    // Pagination
     if (totalPages <= 1) {
         pagination.innerHTML = '';
     } else {
@@ -3372,7 +3435,6 @@ function renderShipments() {
         pagination.innerHTML = pagHtml;
     }
 }
-
 function changeDsrPage(page) {
     const perPage = parseInt(document.getElementById('dsr-per-page')?.value) || 25;
     const total = (db.shipments || []).length;
@@ -3382,7 +3444,6 @@ function changeDsrPage(page) {
     sessionStorage.setItem('dsrPage', String(page));
     renderShipments();
 }
-
 function buildShipmentTable(data, type) {
     let html = `<table class="dsr-table"><thead><tr>
         <th>SR No.</th>
@@ -3395,12 +3456,10 @@ function buildShipmentTable(data, type) {
         <th>Remarks</th>
         <th>Actions</th>
     </tr></thead><tbody>`;
-
     data.forEach((s, idx) => {
         const realIdx = db.shipments.indexOf(s);
         const margin = (s.sell || s.sellPK || 0) - (s.buy || s.buyPK || 0);
         const marginColor = margin < 0 ? 'var(--danger)' : margin > 0 ? 'var(--success)' : 'var(--text)';
-
         html += `<tr>
             <td>${idx + 1}</td>
             <td><a href="javascript:void(0)" onclick="openDsrByCode('${s.code}')" style="color:var(--primary);font-weight:700;text-decoration:underline;cursor:pointer;">${s.code || '-'}</a></td>
@@ -3419,17 +3478,14 @@ function buildShipmentTable(data, type) {
             </td>
         </tr>`;
     });
-
     html += '</tbody></table>';
     return html;
 }
-
 function openDsrByCode(code) {
     const idx = db.shipments.findIndex(s => s.code === code);
     if (idx === -1) return alert('Shipment not found.');
     editDsrShipment(idx);
 }
-
 function editDsrShipment(idx) {
     const s = db.shipments[idx];
     if (!s) return alert('Shipment not found.');
@@ -3438,11 +3494,9 @@ function editDsrShipment(idx) {
     } else if (s.type === 'AIR') {
         openAirDsrModal(idx);
     } else {
-        // Fallback to original modal
         openShipmentModal(idx);
     }
 }
-
 function previewDsrShipment(idx) {
     const s = db.shipments[idx];
     if (!s) return alert('Shipment not found.');
@@ -3473,17 +3527,14 @@ function previewDsrShipment(idx) {
     document.getElementById('previewBody').innerHTML = html;
     openModal('previewModal');
 }
-
 function downloadDsrPDF(idx) {
     const s = db.shipments[idx];
     if (!s) return alert('Shipment not found.');
     const html = buildShipmentPreviewHTML(s, s.type === 'SEA' ? 'sea' : 'air');
-    
-    // Use existing PDF generation logic (html2canvas + jspdf)
     const renderArea = document.getElementById('pdf-render-area');
     renderArea.innerHTML = html;
-    renderArea.style.cssText = `position: fixed; left: 0; top: 0; width: 800px; background: white !important; z-index: 9999; opacity: 1; padding: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.2); font-family: 'Segoe UI', Arial, sans-serif !important; font-size: 10px;`;
-    
+    renderArea.style.cssText =
+        `position: fixed; left: 0; top: 0; width: 800px; background: white !important; z-index: 9999; opacity: 1; padding: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.2); font-family: 'Segoe UI', Arial, sans-serif !important; font-size: 10px;`;
     const styleTag = document.createElement('style');
     styleTag.textContent = `
         table { border-collapse: collapse; width: 100%; font-size: 10px; }
@@ -3494,30 +3545,34 @@ function downloadDsrPDF(idx) {
         .preview-charges-table { font-size: 9px; }
     `;
     renderArea.appendChild(styleTag);
-
     setTimeout(() => {
-        html2canvas(renderArea, { scale: 1, useCORS: true, logging: false, backgroundColor: '#ffffff', width: 800, windowWidth: 800 })
-        .then(canvas => {
-            const { jsPDF } = window.jspdf;
-            const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
-            const pdfWidth = pdf.internal.pageSize.getWidth();
-            const pdfHeight = pdf.internal.pageSize.getHeight();
-            const margin = 10;
-            const imgData = canvas.toDataURL('image/jpeg', 0.95);
-            let imgWidth = pdfWidth - 2 * margin;
-            let imgHeight = (canvas.height * imgWidth) / canvas.width;
-            const maxHeight = pdfHeight - 2 * margin;
-            if (imgHeight > maxHeight) { const scale = maxHeight / imgHeight; imgWidth *= scale; imgHeight *= scale; }
-            const x = (pdfWidth - imgWidth) / 2;
-            const y = (pdfHeight - imgHeight) / 2;
-            pdf.addImage(imgData, 'JPEG', x, y, imgWidth, imgHeight);
-            pdf.save(`${s.type}_Shipment_${s.code}.pdf`);
-            renderArea.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:white;z-index:-1;';
-            renderArea.innerHTML = '';
-        }).catch(err => { console.error('PDF error:', err); alert('PDF generation failed: ' + err.message); renderArea.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:white;z-index:-1;'; renderArea.innerHTML = ''; });
+        html2canvas(renderArea, { scale: 1, useCORS: true, logging: false, backgroundColor: '#ffffff', width: 800,
+                windowWidth: 800 })
+            .then(canvas => {
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = pdf.internal.pageSize.getHeight();
+                const margin = 10;
+                const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                let imgWidth = pdfWidth - 2 * margin;
+                let imgHeight = (canvas.height * imgWidth) / canvas.width;
+                const maxHeight = pdfHeight - 2 * margin;
+                if (imgHeight > maxHeight) { const scale = maxHeight / imgHeight;
+                    imgWidth *= scale;
+                    imgHeight *= scale; }
+                const x = (pdfWidth - imgWidth) / 2;
+                const y = (pdfHeight - imgHeight) / 2;
+                pdf.addImage(imgData, 'JPEG', x, y, imgWidth, imgHeight);
+                pdf.save(`${s.type}_Shipment_${s.code}.pdf`);
+                renderArea.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:white;z-index:-1;';
+                renderArea.innerHTML = '';
+            }).catch(err => { console.error('PDF error:', err);
+                alert('PDF generation failed: ' + err.message);
+                renderArea.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:white;z-index:-1;';
+                renderArea.innerHTML = ''; });
     }, 500);
 }
-
 function duplicateDsrShipment(idx) {
     const s = db.shipments[idx];
     if (!s) return alert('Shipment not found.');
@@ -3532,7 +3587,6 @@ function duplicateDsrShipment(idx) {
     alert(`${s.type} Shipment duplicated! New code: ${copy.code}`);
     autoBackup();
 }
-
 function deleteDsrShipment(idx) {
     const s = db.shipments[idx];
     if (!s) return alert('Shipment not found.');
@@ -3544,7 +3598,6 @@ function deleteDsrShipment(idx) {
         autoBackup();
     }
 }
-
 function clearDSRFilters() {
     document.getElementById('dsr-search').value = '';
     document.getElementById('dsr-type-filter').value = '';
@@ -3554,21 +3607,17 @@ function clearDSRFilters() {
     sessionStorage.setItem('dsrPage', '1');
     renderShipments();
 }
-
-// ===== Auto-Transfer Logic (from Quote to Shipment) =====
 function addShipmentFromQuote(target, mode, idx) {
     const quote = db[target][mode][idx];
     if (!quote) return alert('Quote not found.');
-
-    let freightSell = 0, freightBuy = 0;
+    let freightSell = 0,
+        freightBuy = 0;
     const freightKey = mode === 'air' ? 'AIR FREIGHT' : 'FREIGHT';
     if (quote.charges && quote.charges[freightKey]) {
         const f = quote.charges[freightKey];
         freightSell = toINR(f.amount, f.currency);
         freightBuy = toINR(f.buyAmount || 0, f.buyCurrency || f.currency);
     }
-
-    // Fill base info
     const shipmentBase = {
         shipper: quote.client || '',
         pol: quote.pol || '',
@@ -3583,8 +3632,6 @@ function addShipmentFromQuote(target, mode, idx) {
         docsStatus: (db.docsStatusMaster && db.docsStatusMaster[0]) || 'Pending',
         remarks: quote.remarks || ''
     };
-
-    // SEA specific
     if (mode === 'sea') {
         let s = createEmptySeaShipment();
         Object.assign(s, shipmentBase);
@@ -3592,16 +3639,18 @@ function addShipmentFromQuote(target, mode, idx) {
         s.sell = freightSell;
         s.buy = freightBuy;
         s.containerNo = quote.container || '';
-        // Map charges to SEA DSR fields
-        const carrierMap = { 'THC': 'THC', 'SEAL': 'SEAL', 'MUC': 'MUC', 'DOCS': 'DOCS', 'SEAWAY': 'SEAWAY', 'ETS': 'ETS', 'HAZ DOCS': 'HAZDOCS', 'AMS': 'AMS' };
-        const otherMap = { 'CFS': 'CFS', 'CLEARANCE': 'CLEARANCE', 'VGM': 'VGM', 'TOLL': 'TOLL', 'LASHING & CHOKING': 'LASCHO', 'HAZ STICKER': 'HAZSTICKER', 'TRANSPORTATION': 'TRANSPORTATION', 'LOLO': 'LOLO', 'OTHER LOCALS': 'OTHERLOCAL' };
+        const carrierMap = { 'THC': 'THC', 'SEAL': 'SEAL', 'MUC': 'MUC', 'DOCS': 'DOCS', 'SEAWAY': 'SEAWAY', 'ETS': 'ETS',
+            'HAZ DOCS': 'HAZDOCS', 'AMS': 'AMS' };
+        const otherMap = { 'CFS': 'CFS', 'CLEARANCE': 'CLEARANCE', 'VGM': 'VGM', 'TOLL': 'TOLL',
+            'LASHING & CHOKING': 'LASCHO', 'HAZ STICKER': 'HAZSTICKER', 'TRANSPORTATION': 'TRANSPORTATION', 'LOLO': 'LOLO',
+            'OTHER LOCALS': 'OTHERLOCAL' };
         const charges = quote.charges || {};
-        Object.entries(carrierMap).forEach(([k, v]) => { if (charges[k]) s.carrierCharges[v] = parseFloat(charges[k].amount) || 0; });
-        Object.entries(otherMap).forEach(([k, v]) => { if (charges[k]) s.otherCharges[v] = parseFloat(charges[k].amount) || 0; });
-        openSeaDsrModal(null, s); // Opens SEA popup
-    }
-    // AIR specific
-    else if (mode === 'air') {
+        Object.entries(carrierMap).forEach(([k, v]) => { if (charges[k]) s.carrierCharges[v] = parseFloat(charges[k].amount) ||
+                0; });
+        Object.entries(otherMap).forEach(([k, v]) => { if (charges[k]) s.otherCharges[v] = parseFloat(charges[k].amount) ||
+                0; });
+        openSeaDsrModal(null, s);
+    } else if (mode === 'air') {
         let s = createEmptyAirShipment();
         Object.assign(s, shipmentBase);
         s.code = 'AR-' + Date.now().toString(36).toUpperCase();
@@ -3609,73 +3658,65 @@ function addShipmentFromQuote(target, mode, idx) {
         s.buyPK = freightBuy;
         s.grossWeight = quote.weight || 0;
         s.validEtd = quote.validityDate || '';
-        const airMap = { 'AIR FREIGHT': 'TOTALFRT', 'AWB FEES': 'AWB', 'CARTAGE': 'CARTAGE', 'TEDI': 'TEDI', 'MCC': 'MCC', 'AMS': 'AMS', 'XRAY': 'XRAY', 'DG FEES': 'DGFEE', 'ASI GMAX': 'ASI', 'GATE PASS': 'GATEPASS', 'CUSTOM CLEARANCE': 'CLEARANCE', 'TRANSPORATION': 'TRANSPORT', 'PALLETISATION': 'PALLET', 'DG AGENT FEE': 'DGAGENT' };
+        const airMap = { 'AIR FREIGHT': 'TOTALFRT', 'AWB FEES': 'AWB', 'CARTAGE': 'CARTAGE', 'TEDI': 'TEDI', 'MCC': 'MCC',
+            'AMS': 'AMS', 'XRAY': 'XRAY', 'DG FEES': 'DGFEE', 'ASI GMAX': 'ASI', 'GATE PASS': 'GATEPASS',
+            'CUSTOM CLEARANCE': 'CLEARANCE', 'TRANSPORATION': 'TRANSPORT', 'PALLETISATION': 'PALLET', 'DG AGENT FEE': 'DGAGENT' };
         const charges = quote.charges || {};
-        Object.entries(airMap).forEach(([k, v]) => { if (charges[k]) s.quoteCharges[v] = parseFloat(charges[k].amount) || 0; });
-        openAirDsrModal(null, s); // Opens AIR popup
+        Object.entries(airMap).forEach(([k, v]) => { if (charges[k]) s.quoteCharges[v] = parseFloat(charges[k].amount) ||
+                0; });
+        openAirDsrModal(null, s);
     }
 }
-
-// Override the old convert function to use the new auto-add
 function convertQuoteToShipmentByIndex(target, mode, idx) {
     addShipmentFromQuote(target, mode, idx);
 }
-
-// Override renderRecords to replace "Convert to Shipment" button with "Add Shipment"
 const originalRenderRecords = renderRecords;
 renderRecords = function(target) {
     originalRenderRecords(target);
     if (target === 'rates') {
-        document.querySelectorAll('#rates-sea-list .record-actions, #rates-air-list .record-actions, #rates-lcl-list .record-actions').forEach(container => {
-            const btns = container.querySelectorAll('.btn-success');
-            btns.forEach(btn => {
-                if (btn.textContent.includes('Convert to Shipment')) {
-                    const match = btn.onclick.toString().match(/convertQuoteToShipmentByIndex\('([^']+)','([^']+)',(\d+)\)/);
-                    if (match) {
-                        const [, t, m, i] = match;
-                        btn.textContent = '➕ Add Shipment';
-                        btn.onclick = function() { addShipmentFromQuote(t, m, parseInt(i)); };
-                        btn.classList.remove('btn-success');
-                        btn.classList.add('btn-save');
+        document.querySelectorAll('#rates-sea-list .record-actions, #rates-air-list .record-actions, #rates-lcl-list .record-actions')
+            .forEach(container => {
+                const btns = container.querySelectorAll('.btn-success');
+                btns.forEach(btn => {
+                    if (btn.textContent.includes('Convert to Shipment')) {
+                        const match = btn.onclick.toString().match(/convertQuoteToShipmentByIndex\('([^']+)','([^']+)',(\d+)\)/);
+                        if (match) {
+                            const [, t, m, i] = match;
+                            btn.textContent = '➕ Add Shipment';
+                            btn.onclick = function() { addShipmentFromQuote(t, m, parseInt(i)); };
+                            btn.classList.remove('btn-success');
+                            btn.classList.add('btn-save');
+                        }
                     }
-                }
+                });
             });
-        });
     }
 };
-
-// ===== Preview for DSR Form (removed – no longer used) =====
-// The preview button has been removed from the DSR popups.
-// The following functions are kept for potential reuse, but not called anywhere.
-
 function buildShipmentPreviewHTML(s, mode) {
     const userName = getLoggedInUserName() || db.defaultUser || 'N/A';
     const modeLabel = { sea: 'SEA SHIPMENT DSR', air: 'AIR SHIPMENT DSR' }[mode] || 'SHIPMENT DSR';
     let chargeRows = '';
     let totalSell = 0;
-    
     if (mode === 'sea') {
         totalSell = s.sell || 0;
         chargeRows = `<tr><td>Freight</td><td>${(s.sell || 0).toFixed(2)}</td><td>INR</td><td>${formatINR(s.sell || 0)}</td></tr>`;
-        Object.entries(s.carrierCharges || {}).forEach(([k, v]) => { if(v > 0) chargeRows += `<tr><td>${k}</td><td>${v.toFixed(2)}</td><td>INR</td><td>${formatINR(v)}</td></tr>`; });
-        Object.entries(s.otherCharges || {}).forEach(([k, v]) => { if(v > 0) chargeRows += `<tr><td>${k}</td><td>${v.toFixed(2)}</td><td>INR</td><td>${formatINR(v)}</td></tr>`; });
+        Object.entries(s.carrierCharges || {}).forEach(([k, v]) => { if (v > 0) chargeRows +=
+                `<tr><td>${k}</td><td>${v.toFixed(2)}</td><td>INR</td><td>${formatINR(v)}</td></tr>`; });
+        Object.entries(s.otherCharges || {}).forEach(([k, v]) => { if (v > 0) chargeRows +=
+                `<tr><td>${k}</td><td>${v.toFixed(2)}</td><td>INR</td><td>${formatINR(v)}</td></tr>`; });
     } else {
         totalSell = s.sellPK || 0;
-        chargeRows = `<tr><td>Sell PK</td><td>${(s.sellPK || 0).toFixed(2)}</td><td>INR</td><td>${formatINR(s.sellPK || 0)}</td></tr>`;
-        Object.entries(s.quoteCharges || {}).forEach(([k, v]) => { if(v > 0) chargeRows += `<tr><td>${k}</td><td>${v.toFixed(2)}</td><td>INR</td><td>${formatINR(v)}</td></tr>`; });
+        chargeRows =
+            `<tr><td>Sell PK</td><td>${(s.sellPK || 0).toFixed(2)}</td><td>INR</td><td>${formatINR(s.sellPK || 0)}</td></tr>`;
+        Object.entries(s.quoteCharges || {}).forEach(([k, v]) => { if (v > 0) chargeRows +=
+                `<tr><td>${k}</td><td>${v.toFixed(2)}</td><td>INR</td><td>${formatINR(v)}</td></tr>`; });
     }
-
-    // Reuse the exact styling from buildPreviewHTML (Freight Quotation style)
     return `
     <div style="background:#ffffff !important; color:#1a1a1a !important; font-family:'Segoe UI',Arial,sans-serif; max-width:800px; margin:0 auto; padding:10px;">
-        
-        <!-- 1. COMPANY LETTERHEAD AT TOP -->
         <div style="border-bottom:2px solid #1e3a8a;padding-bottom:8px;margin-bottom:10px;">
             <div style="font-size:0.9rem;font-weight:700;color:#1e3a8a;">${db.companyName || 'GATEWAY EXIM'}</div>
             <div style="font-size:0.65rem;color:#64748b;">${db.companyAddress || ''}</div>
         </div>
-
-        <!-- 2. TITLE & REF NO (EXACT ORIGINAL BOX LAYOUT) -->
         <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:12px;">
             <div style="text-align:left;">
                 <div style="font-size:1.2rem;color:#1e3a8a !important;font-weight:800;letter-spacing:1px;">${modeLabel}</div>
@@ -3684,7 +3725,6 @@ function buildShipmentPreviewHTML(s, mode) {
                 <div style="font-family:'Courier New',monospace;color:#d97706 !important;font-weight:700;font-size:0.85rem;background:#fffbeb;padding:4px 10px;border-radius:5px;">Ref: ${s.code}</div>
             </div>
         </div>
-
         <div style="background:#1e3a8a !important;color:white !important;font-weight:700;padding:5px 9px;margin-top:12px;border-radius:4px 4px 0 0;font-size:0.78rem;">Customer & Shipment Details</div>
         <table style="width:100%;border-collapse:collapse;margin-top:0;font-size:0.72rem;">
             <tr><th style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;background:#f1f5f9 !important;color:#334155 !important;font-weight:700;">Shipper</th><td style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;color:#1a1a1a !important;">${s.shipper||'-'}</td><th style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;background:#f1f5f9 !important;color:#334155 !important;font-weight:700;">Date</th><td style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;color:#1a1a1a !important;">${s.date||'-'}</td></tr>
@@ -3692,22 +3732,18 @@ function buildShipmentPreviewHTML(s, mode) {
             <tr><th style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;background:#f1f5f9 !important;color:#334155 !important;font-weight:700;">POL</th><td style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;color:#1a1a1a !important;">${s.pol||'-'}</td><th style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;background:#f1f5f9 !important;color:#334155 !important;font-weight:700;">POD</th><td style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;color:#1a1a1a !important;">${s.pod||'-'}</td></tr>
             <tr><th style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;background:#f1f5f9 !important;color:#334155 !important;font-weight:700;">Commodity</th><td style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;color:#1a1a1a !important;">${s.commodity||'-'}</td><th style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;background:#f1f5f9 !important;color:#334155 !important;font-weight:700;">Weight</th><td style="border:1px solid #d1d5db;padding:4px 7px;text-align:left;color:#1a1a1a !important;">${s.weight || s.grossWeight || '-'}</td></tr>
         </table>
-
         <div style="background:#1e3a8a !important;color:white !important;font-weight:700;padding:5px 9px;margin-top:12px;border-radius:4px 4px 0 0;font-size:0.78rem;">Charge Breakdown</div>
         <table style="width:100%;border-collapse:collapse;margin-top:0;font-size:0.72rem;">
             <thead><tr style="background:#1e3a8a;color:white;"><th style="padding:6px 8px;text-align:left;">Charge</th><th style="padding:6px 8px;text-align:right;">Amount</th><th style="padding:6px 8px;text-align:left;">Currency</th><th style="padding:6px 8px;text-align:right;">INR Equivalent</th></tr></thead>
             <tbody>${chargeRows}</tbody>
             <tfoot><tr style="background:#10b981 !important;color:white !important;font-weight:bold;"><td colspan="3" style="padding:6px 8px;text-align:right;">TOTAL (INR)</td><td style="padding:6px 8px;text-align:right;">${formatINR(totalSell)}</td></tr></tfoot>
         </table>
-        
         <div style="margin-top:12px;font-size:0.68rem;color:#64748b !important;text-align:center;border-top:1px solid #e2e8f0;padding-top:10px;">
             <p>Generated on ${new Date().toLocaleString('en-IN')}</p>
             <div style="font-size:0.65rem;color:#64748b;margin-top:2px;">Prepared By: ${s.sales || userName}</div>	
         </div>
     </div>`;
 }
-
-// ===== Override saveDB and closeModal to trigger DSR refresh =====
 const originalSaveDB = saveDB;
 saveDB = function() {
     const result = originalSaveDB();
@@ -3717,7 +3753,6 @@ saveDB = function() {
     }
     return result;
 };
-
 const originalCloseModal = closeModal;
 closeModal = function(id) {
     originalCloseModal(id);
@@ -3729,7 +3764,7 @@ closeModal = function(id) {
     }
 };
 
-// ==================== BL DRAFT MODAL (FIXED) ====================
+// ==================== BL DRAFT ====================
 function openBLModal(editIdx = null, shipmentIdx = null) {
     try {
         const modal = document.getElementById('blModal');
@@ -3739,8 +3774,6 @@ function openBLModal(editIdx = null, shipmentIdx = null) {
             console.error('BL Modal elements missing');
             return alert('BL Draft modal not found – please refresh the page.');
         }
-
-        // Safeguard DB structures
         if (!db.bldrafts) db.bldrafts = [];
         if (!db.shipments) db.shipments = [];
         if (!db.pol) db.pol = [];
@@ -3752,10 +3785,8 @@ function openBLModal(editIdx = null, shipmentIdx = null) {
         if (!db.hiddenItems.pod) db.hiddenItems.pod = [];
         if (!db.hiddenItems.containers) db.hiddenItems.containers = [];
         if (!db.hiddenItems.carriers) db.hiddenItems.carriers = [];
-
         let b = { status: 'Draft', issueDate: new Date().toISOString().split('T')[0] };
         let isEdit = false;
-
         if (editIdx !== null && db.bldrafts[editIdx]) {
             b = { ...db.bldrafts[editIdx] };
             isEdit = true;
@@ -3773,17 +3804,15 @@ function openBLModal(editIdx = null, shipmentIdx = null) {
                 b.placeOfIssue = s.pol || '';
                 b.containers = [];
                 if (s.containerNo) {
-                    b.containers.push({ containerNo: s.containerNo, type: '', seal: '', weight: s.weight || 0, volume: 0, packages: '' });
+                    b.containers.push({ containerNo: s.containerNo, type: '', seal: '', weight: s.weight || 0, volume: 0,
+                        packages: '' });
                 }
             }
         }
-
-        // Build dropdown options safely
         const ports = db.pod.filter(p => !db.hiddenItems.pod.includes(p)).sort();
         const pols = db.pol.filter(p => !db.hiddenItems.pol.includes(p)).sort();
         const containers = db.containers.filter(c => !db.hiddenItems.containers.includes(c)).sort();
         const carriers = db.carriers.filter(c => !db.hiddenItems.carriers.includes(c)).sort();
-
         let containerRows = '';
         (b.containers || []).forEach((c, i) => {
             containerRows += `<div class="bl-container-row" data-row="${i}">
@@ -3796,7 +3825,6 @@ function openBLModal(editIdx = null, shipmentIdx = null) {
                 <button class="btn btn-sm btn-clear" onclick="this.closest('.bl-container-row').remove(); updateBLTotals();">×</button>
             </div>`;
         });
-
         body.innerHTML = `
             <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;margin-bottom:16px;">
                 <div class="form-group"><label>BL Number</label><input type="text" id="bl-number" value="${b.blNumber || 'BL-'+Date.now().toString(36).toUpperCase()}" style="font-weight:bold;font-size:1.1rem;" /></div>
@@ -3868,26 +3896,42 @@ function openBLModal(editIdx = null, shipmentIdx = null) {
 
 // ==================== DATABASE RENDER ====================
 function renderDatabase() {
-    // Company Info
     document.getElementById('company-name').value = db.companyName || '';
     document.getElementById('company-address').value = db.companyAddress || '';
     document.getElementById('current-company-name').textContent = db.companyName || 'Not Set';
     document.getElementById('default-user-input').value = db.defaultUser || '';
     document.getElementById('current-default-user').textContent = db.defaultUser || 'Not Set';
-    // Exchange Rates
     renderExchangeRates();
-    // Master Data (rendered by switchMasterTab)
     switchMasterTab(currentMasterTab);
-    renderUserTable(); // ADDED: render user management table
+    renderUserTable();
+    const d = db.defaults || {};
+
+    document.getElementById('def-gst').value = d.gst || 0;
+    document.getElementById('def-insurance').value = d.insurance || 0;
+    document.getElementById('def-profit').value = d.profitMargin || 0;
+    document.getElementById('def-us-duty').value = d.usDuty || 0;
+    document.getElementById('def-us-tariff').value = d.usTariff || 0;
+    document.getElementById('def-us-mpf').value = d.usMPF || 0;
+    document.getElementById('def-us-hmf').value = d.usHMF || 0;
+    document.getElementById('def-in-duty').value = d.inDuty || 0;
+    document.getElementById('def-in-social').value = d.inSocialWelfare || 0;
+    document.getElementById('def-drawback').value = d.drawback || 0;
+    document.getElementById('def-rodtep').value = d.rodtep || 0;
+
+    const curSelect = document.getElementById('def-currency');
+    if (curSelect) {
+        curSelect.innerHTML = Object.keys(db.exchangeRates).map(c =>
+            `<option value="${c}" ${c === (d.defaultCurrency || 'USD') ? 'selected' : ''}>${c}</option>`
+        ).join('');
+    }
 }
 
-// ==================== MASTER DATA MANAGEMENT (Enhanced with Cargo/Docs Status) ====================
+// ==================== MASTER DATA ====================
 function switchMasterTab(tab) {
     currentMasterTab = tab;
     document.querySelectorAll('.master-tab').forEach(t => t.classList.toggle('active', t.dataset.master === tab));
     renderMasterData();
 }
-
 function renderMasterData() {
     const list = document.getElementById('master-list');
     const pagination = document.getElementById('master-pagination');
@@ -3899,7 +3943,6 @@ function renderMasterData() {
     else if (currentMasterTab === 'containers') data = db.containers || [];
     else if (currentMasterTab === 'cargostatus') data = db.cargoStatusMaster || [];
     else if (currentMasterTab === 'docsstatus') data = db.docsStatusMaster || [];
-
     const hidden = db.hiddenItems[currentMasterTab] || [];
     let filteredData = data.map((item, idx) => ({ item, idx }));
     if (masterShowMode === 'visible') filteredData = filteredData.filter(({ item }) => !hidden.includes(item));
@@ -3910,20 +3953,17 @@ function renderMasterData() {
     }
     if (masterSort === 'alpha-asc') filteredData.sort((a, b) => a.item.localeCompare(b.item));
     else if (masterSort === 'alpha-desc') filteredData.sort((a, b) => b.item.localeCompare(a.item));
-
     const perPage = parseInt(masterPerPage) || 20;
     const totalPages = Math.ceil(filteredData.length / perPage) || 1;
     if (masterPage > totalPages) masterPage = totalPages;
     if (masterPage < 1) masterPage = 1;
     const start = (masterPage - 1) * perPage;
     const pageData = filteredData.slice(start, start + perPage);
-
     if (pageData.length === 0) {
         list.innerHTML = '<p style="padding:20px;text-align:center;color:var(--text-light);">No items found.</p>';
         pagination.innerHTML = '';
         return;
     }
-
     list.innerHTML = pageData.map(({ item, idx: originalIdx }) => {
         const isHidden = hidden.includes(item);
         const hiddenClass = isHidden ? 'hidden-item' : '';
@@ -3936,23 +3976,21 @@ function renderMasterData() {
             </div>
         </div>`;
     }).join('');
-
     if (totalPages <= 1) { pagination.innerHTML = ''; return; }
     let pagHtml = `<button class="page-btn" onclick="changeMasterPage(${masterPage - 1})" ${masterPage === 1 ? 'disabled' : ''}>‹ Prev</button>`;
     pagHtml += `<span class="page-info">Page ${masterPage} of ${totalPages}</span>`;
     pagHtml += `<button class="page-btn" onclick="changeMasterPage(${masterPage + 1})" ${masterPage === totalPages ? 'disabled' : ''}>Next ›</button>`;
     pagination.innerHTML = pagHtml;
 }
-
 function changeMasterPage(page) {
     const data = currentMasterTab === 'carriers' ? db.carriers :
-                 currentMasterTab === 'pol' ? db.pol :
-                 currentMasterTab === 'pod' ? db.pod :
-                 currentMasterTab === 'incoterms' ? db.incoterms :
-                 currentMasterTab === 'containers' ? db.containers :
-                 currentMasterTab === 'cargostatus' ? db.cargoStatusMaster :
-                 currentMasterTab === 'docsstatus' ? db.docsStatusMaster :
-                 db.carriers;
+        currentMasterTab === 'pol' ? db.pol :
+        currentMasterTab === 'pod' ? db.pod :
+        currentMasterTab === 'incoterms' ? db.incoterms :
+        currentMasterTab === 'containers' ? db.containers :
+        currentMasterTab === 'cargostatus' ? db.cargoStatusMaster :
+        currentMasterTab === 'docsstatus' ? db.docsStatusMaster :
+        db.carriers;
     const hidden = db.hiddenItems[currentMasterTab] || [];
     let filteredData = data.map((item, idx) => ({ item, idx }));
     if (masterShowMode === 'visible') filteredData = filteredData.filter(({ item }) => !hidden.includes(item));
@@ -3964,19 +4002,18 @@ function changeMasterPage(page) {
     masterPage = page;
     renderMasterData();
 }
-
 function addMasterItem() {
     const input = document.getElementById('new-master-item');
     const val = input.value.trim();
     if (!val) return alert('Enter a value');
     const listKey = currentMasterTab === 'carriers' ? 'carriers' :
-                    currentMasterTab === 'pol' ? 'pol' :
-                    currentMasterTab === 'pod' ? 'pod' :
-                    currentMasterTab === 'incoterms' ? 'incoterms' :
-                    currentMasterTab === 'containers' ? 'containers' :
-                    currentMasterTab === 'cargostatus' ? 'cargoStatusMaster' :
-                    currentMasterTab === 'docsstatus' ? 'docsStatusMaster' :
-                    'carriers';
+        currentMasterTab === 'pol' ? 'pol' :
+        currentMasterTab === 'pod' ? 'pod' :
+        currentMasterTab === 'incoterms' ? 'incoterms' :
+        currentMasterTab === 'containers' ? 'containers' :
+        currentMasterTab === 'cargostatus' ? 'cargoStatusMaster' :
+        currentMasterTab === 'docsstatus' ? 'docsStatusMaster' :
+        'carriers';
     if (db[listKey].includes(val)) return alert('Item already exists');
     db[listKey].push(val);
     saveDB();
@@ -3985,19 +4022,18 @@ function addMasterItem() {
     populateDropdowns();
     autoBackup();
 }
-
 function addMultipleMasterItems() {
     const textarea = document.getElementById('new-master-items');
     const items = textarea.value.split(/\n/).map(s => s.trim().toUpperCase()).filter(s => s);
     if (!items.length) return alert('Enter at least one item');
     const listKey = currentMasterTab === 'carriers' ? 'carriers' :
-                    currentMasterTab === 'pol' ? 'pol' :
-                    currentMasterTab === 'pod' ? 'pod' :
-                    currentMasterTab === 'incoterms' ? 'incoterms' :
-                    currentMasterTab === 'containers' ? 'containers' :
-                    currentMasterTab === 'cargostatus' ? 'cargoStatusMaster' :
-                    currentMasterTab === 'docsstatus' ? 'docsStatusMaster' :
-                    'carriers';
+        currentMasterTab === 'pol' ? 'pol' :
+        currentMasterTab === 'pod' ? 'pod' :
+        currentMasterTab === 'incoterms' ? 'incoterms' :
+        currentMasterTab === 'containers' ? 'containers' :
+        currentMasterTab === 'cargostatus' ? 'cargoStatusMaster' :
+        currentMasterTab === 'docsstatus' ? 'docsStatusMaster' :
+        'carriers';
     let added = 0;
     items.forEach(item => {
         if (!db[listKey].includes(item)) {
@@ -4012,16 +4048,15 @@ function addMultipleMasterItems() {
     alert(`Added ${added} items`);
     autoBackup();
 }
-
 function editMasterItem(tab, originalIdx) {
     const listKey = tab === 'carriers' ? 'carriers' :
-                    tab === 'pol' ? 'pol' :
-                    tab === 'pod' ? 'pod' :
-                    tab === 'incoterms' ? 'incoterms' :
-                    tab === 'containers' ? 'containers' :
-                    tab === 'cargostatus' ? 'cargoStatusMaster' :
-                    tab === 'docsstatus' ? 'docsStatusMaster' :
-                    'carriers';
+        tab === 'pol' ? 'pol' :
+        tab === 'pod' ? 'pod' :
+        tab === 'incoterms' ? 'incoterms' :
+        tab === 'containers' ? 'containers' :
+        tab === 'cargostatus' ? 'cargoStatusMaster' :
+        tab === 'docsstatus' ? 'docsStatusMaster' :
+        'carriers';
     const data = db[listKey];
     const item = data[originalIdx];
     if (!item) return alert('Item not found');
@@ -4034,16 +4069,15 @@ function editMasterItem(tab, originalIdx) {
         autoBackup();
     }
 }
-
 function toggleHiddenMasterItem(tab, originalIdx) {
     const listKey = tab === 'carriers' ? 'carriers' :
-                    tab === 'pol' ? 'pol' :
-                    tab === 'pod' ? 'pod' :
-                    tab === 'incoterms' ? 'incoterms' :
-                    tab === 'containers' ? 'containers' :
-                    tab === 'cargostatus' ? 'cargoStatusMaster' :
-                    tab === 'docsstatus' ? 'docsStatusMaster' :
-                    'carriers';
+        tab === 'pol' ? 'pol' :
+        tab === 'pod' ? 'pod' :
+        tab === 'incoterms' ? 'incoterms' :
+        tab === 'containers' ? 'containers' :
+        tab === 'cargostatus' ? 'cargoStatusMaster' :
+        tab === 'docsstatus' ? 'docsStatusMaster' :
+        'carriers';
     const data = db[listKey];
     const item = data[originalIdx];
     if (!item) return;
@@ -4058,16 +4092,15 @@ function toggleHiddenMasterItem(tab, originalIdx) {
     populateDropdowns();
     autoBackup();
 }
-
 function deleteMasterItem(tab, originalIdx) {
     const listKey = tab === 'carriers' ? 'carriers' :
-                    tab === 'pol' ? 'pol' :
-                    tab === 'pod' ? 'pod' :
-                    tab === 'incoterms' ? 'incoterms' :
-                    tab === 'containers' ? 'containers' :
-                    tab === 'cargostatus' ? 'cargoStatusMaster' :
-                    tab === 'docsstatus' ? 'docsStatusMaster' :
-                    'carriers';
+        tab === 'pol' ? 'pol' :
+        tab === 'pod' ? 'pod' :
+        tab === 'incoterms' ? 'incoterms' :
+        tab === 'containers' ? 'containers' :
+        tab === 'cargostatus' ? 'cargoStatusMaster' :
+        tab === 'docsstatus' ? 'docsStatusMaster' :
+        'carriers';
     const data = db[listKey];
     const item = data[originalIdx];
     if (!item) return alert('Item not found');
@@ -4101,13 +4134,11 @@ function renderExchangeRates() {
         </tbody>
     `;
 }
-
 function updateExchangeRate(currency, rate) {
     const val = parseFloat(rate);
     if (!isNaN(val) && val > 0) {
         db.exchangeRates[currency] = val;
         saveDB();
-        // Refresh any charge grid that uses currency
         ['sea', 'air', 'lcl'].forEach(m => {
             if (document.getElementById(m).classList.contains('active')) {
                 recalcTotal(m);
@@ -4116,7 +4147,6 @@ function updateExchangeRate(currency, rate) {
         autoBackup();
     }
 }
-
 function addExchangeRate() {
     const cur = document.getElementById('new-currency').value.trim().toUpperCase();
     const rate = parseFloat(document.getElementById('new-rate').value);
@@ -4129,7 +4159,6 @@ function addExchangeRate() {
     renderExchangeRates();
     autoBackup();
 }
-
 function deleteExchangeRate(currency) {
     if (currency === 'INR') return alert('Cannot delete INR');
     if (confirm(`Delete exchange rate for ${currency}?`)) {
@@ -4152,7 +4181,6 @@ function saveCompanyInfo() {
     alert('Company info saved!');
     autoBackup();
 }
-
 function saveDefaultUser() {
     const user = document.getElementById('default-user-input').value.trim();
     if (!user) return alert('User name is required');
@@ -4170,21 +4198,17 @@ function populateDropdowns() {
     if (!db.pod) db.pod = [];
     if (!db.incoterms) db.incoterms = [];
     if (!db.containers) db.containers = [];
-    if (!db.exchangeRates) db.exchangeRates = { USD: 83.50, INR: 1 };
-
+    if (!db.exchangeRates) db.exchangeRates = { USD: 94.50, INR: 1 };
     const hiddenCarriers = db.hiddenItems?.carriers || [];
     const hiddenPol = db.hiddenItems?.pol || [];
     const hiddenPod = db.hiddenItems?.pod || [];
     const hiddenIncoterms = db.hiddenItems?.incoterms || [];
     const hiddenContainers = db.hiddenItems?.containers || [];
-
-    // Do NOT sort here – preserve JSON order
     const visibleCarriers = ['ALL', ...db.carriers.filter(c => !hiddenCarriers.includes(c))];
     const visiblePol = db.pol.filter(p => !hiddenPol.includes(p));
     const visiblePod = db.pod.filter(p => !hiddenPod.includes(p));
     const visibleIncoterms = db.incoterms.filter(i => !hiddenIncoterms.includes(i));
     const visibleContainers = db.containers.filter(c => !hiddenContainers.includes(c));
-
     ['sea', 'air', 'lcl'].forEach(mode => {
         populateSelect(`${mode}-carrier`, visibleCarriers);
         populateSelect(`${mode}-pol`, visiblePol);
@@ -4192,8 +4216,6 @@ function populateDropdowns() {
         populateSelect(`${mode}-incoterm`, visibleIncoterms);
         if (mode === 'sea') populateSelect(`${mode}-container`, visibleContainers);
     });
-
-    // Filters
     populateSelect('dc-sea-filter-carrier', ['ALL', ...visibleCarriers]);
     populateSelect('dc-sea-filter-pol', visiblePol);
     populateSelect('dc-air-filter-pol', visiblePol);
@@ -4203,7 +4225,6 @@ function populateDropdowns() {
     populateSelect('cc-air-filter-carrier', visibleCarriers);
     populateSelect('cc-lcl-filter-carrier', visibleCarriers);
 }
-
 function populateSelect(id, options) {
     const sel = document.getElementById(id);
     if (!sel) return;
@@ -4213,18 +4234,15 @@ function populateSelect(id, options) {
     if (cur && options.includes(cur)) sel.value = cur;
 }
 
-// ==================== DEFAULT CHARGES MASTER (FIXED INDEX) ====================
+// ==================== DEFAULT CHARGES MASTER ====================
 function renderDefaultChargesMaster(mode) {
     const search = (document.getElementById(`dc-${mode}-search`)?.value || '').toLowerCase();
     let records = [];
     if (mode === 'sea') records = db.defaultSeaCharges;
     else if (mode === 'air') records = db.defaultAirCharges;
     else if (mode === 'lcl') records = db.defaultLclCharges;
-
     const filterCarrier = mode === 'sea' ? (document.getElementById(`dc-sea-filter-carrier`)?.value || '') : '';
     const filterPol = document.getElementById(`dc-${mode}-filter-pol`)?.value || '';
-
-    // Filter records but keep original index
     const filtered = records.map((rec, originalIdx) => ({ rec, originalIdx }))
         .filter(({ rec }) => {
             let text = '';
@@ -4235,16 +4253,13 @@ function renderDefaultChargesMaster(mode) {
             if (filterPol && rec.pol !== filterPol) return false;
             return true;
         });
-
     const disp = document.getElementById(`dc-${mode}-master-table`);
-    // Only show columns: Carrier (sea), POL, Container (sea), Commodity/Cargo, Action
     let html = `<table class="master-table"><thead><tr>`;
     if (mode === 'sea') html += `<th>Carrier</th>`;
     html += `<th>POL</th>`;
     if (mode === 'sea') html += `<th>Container</th>`;
     html += `<th>Commodity / Cargo</th>`;
     html += `<th>Action</th></tr></thead><tbody>`;
-
     if (filtered.length === 0) {
         const cols = (mode === 'sea' ? 4 : 3);
         html += `<tr><td colspan="${cols}" style="text-align:center;padding:16px;color:var(--text-light);">No records.</td></tr>`;
@@ -4267,13 +4282,11 @@ function renderDefaultChargesMaster(mode) {
     disp.innerHTML = html;
 }
 
-// ==================== CARRIER-WISE CHARGES (FIXED INDEX) ====================
+// ==================== CARRIER CHARGES MASTER ====================
 function renderCarrierChargesMaster(type) {
     const search = (document.getElementById(`cc-${type}-search`)?.value || '').toLowerCase();
     const filterMode = type === 'sealcl' ? (document.getElementById('cc-sealcl-filter-mode')?.value || '') : '';
     let records = type === 'sealcl' ? db.carrierChargesSeaLcl : db.carrierChargesAir;
-
-    // Filter records but keep original index
     const filtered = records.map((rec, originalIdx) => ({ rec, originalIdx }))
         .filter(({ rec }) => {
             const text = `${rec.mode||''} ${rec.carrier} ${rec.pol} ${rec.container||''}`.toLowerCase();
@@ -4281,7 +4294,6 @@ function renderCarrierChargesMaster(type) {
             if (type === 'sealcl' && filterMode && rec.mode !== filterMode) return false;
             return true;
         });
-
     const disp = document.getElementById(`cc-${type}-master-table`);
     let html = `<table class="master-table"><thead><tr>`;
     if (type === 'sealcl') html += `<th>Mode</th>`;
@@ -4289,7 +4301,6 @@ function renderCarrierChargesMaster(type) {
     if (type === 'sealcl') html += `<th>Container</th>`;
     html += `<th>Commodity</th>`;
     html += `<th>Charges</th><th>Updated</th><th>Action</th></tr></thead><tbody>`;
-
     if (filtered.length === 0) {
         const cols = type === 'sealcl' ? 8 : 6;
         html += `<tr><td colspan="${cols}" style="text-align:center;padding:16px;color:var(--text-light);">No records.</td></tr>`;
@@ -4315,14 +4326,13 @@ function renderCarrierChargesMaster(type) {
     disp.innerHTML = html;
 }
 
-// ==================== ADD/EDIT DEFAULT CHARGES (with duplicate prevention) ====================
+// ==================== ADD/EDIT DEFAULT CHARGES ====================
 function openEditDefaultChargeModal(mode, idx) {
     let rec;
     if (mode === 'sea') rec = db.defaultSeaCharges[idx];
     else if (mode === 'air') rec = db.defaultAirCharges[idx];
     else rec = db.defaultLclCharges[idx];
     if (!rec) return alert('Record not found');
-
     let html = `<h3 style="color:var(--primary);margin-bottom:12px;">Edit Default ${mode.toUpperCase()} Charge</h3>`;
     if (mode === 'sea') {
         html += `<div class="form-grid-2col">
@@ -4337,7 +4347,6 @@ function openEditDefaultChargeModal(mode, idx) {
             <div class="form-group"><label>Commodity</label><select id="modal-dc-commodity-edit"><option value="">Select</option><option value="NON HAZ" ${rec.commodity==='NON HAZ'?'selected':''}>Non Haz</option><option value="HAZ" ${rec.commodity==='HAZ'?'selected':''}>Haz</option></select></div>
         </div>`;
     }
-
     html += `<h4 style="color:var(--primary);margin:12px 0 8px;">Charges</h4><div id="modal-dc-charges-list">`;
     const charges = rec.charges || {};
     Object.entries(charges).forEach(([key, val]) => {
@@ -4364,15 +4373,12 @@ function openEditDefaultChargeModal(mode, idx) {
     document.getElementById('previewBody').innerHTML = html;
     openModal('previewModal');
 }
-
 function saveEditDefaultCharge(mode, idx) {
     let rec;
     if (mode === 'sea') rec = db.defaultSeaCharges[idx];
     else if (mode === 'air') rec = db.defaultAirCharges[idx];
     else rec = db.defaultLclCharges[idx];
     if (!rec) return alert('Record not found');
-
-    // Collect updated data
     let updatedRecord;
     if (mode === 'sea') {
         const carrier = document.getElementById('modal-dc-carrier-edit').value.trim() || 'ALL';
@@ -4388,13 +4394,9 @@ function saveEditDefaultCharge(mode, idx) {
         if (!pol) return alert('POL is required');
         updatedRecord = { pol, commodity };
     }
-
-    // Check duplicate (excluding current index)
     if (findDefaultChargeDuplicate(mode, updatedRecord, idx)) {
         return alert('Duplicate entry!');
     }
-
-    // Apply changes
     if (mode === 'sea') {
         rec.carrier = updatedRecord.carrier;
         rec.container = updatedRecord.container;
@@ -4402,8 +4404,6 @@ function saveEditDefaultCharge(mode, idx) {
     }
     rec.pol = updatedRecord.pol;
     rec.commodity = updatedRecord.commodity || '';
-
-    // Rebuild charges
     rec.charges = {};
     document.querySelectorAll('#modal-dc-charges-list [data-charge-key]').forEach(row => {
         const key = row.getAttribute('data-charge-key');
@@ -4411,14 +4411,12 @@ function saveEditDefaultCharge(mode, idx) {
         const cur = row.querySelector('.modal-chg-cur').value;
         if (amt > 0) rec.charges[key] = { amount: amt, currency: cur };
     });
-
     saveDB();
     closeModal('previewModal');
     renderDefaultChargesMaster(mode);
     alert('Saved!');
     autoBackup();
 }
-
 function openAddDefaultChargeModal(mode) {
     let html = `<h3 style="color:var(--primary);margin-bottom:12px;">Add Default ${mode.toUpperCase()} Charge</h3>`;
     if (mode === 'sea') {
@@ -4450,13 +4448,11 @@ function openAddDefaultChargeModal(mode) {
     document.getElementById('previewBody').innerHTML = html;
     openModal('previewModal');
 }
-
 function addChargeToDCModal() {
     const key = document.getElementById('modal-dc-add-charge').value;
     const amt = parseFloat(document.getElementById('modal-dc-add-amt').value) || 0;
     const cur = document.getElementById('modal-dc-add-cur').value;
     const list = document.getElementById('modal-dc-charges-list');
-
     if (list.querySelector(`[data-charge-key="${key}"]`)) {
         alert('Charge already added!');
         return;
@@ -4468,7 +4464,6 @@ function addChargeToDCModal() {
             return;
         }
     }
-
     list.insertAdjacentHTML('beforeend', `<div style="margin-bottom:6px;background:var(--bg);padding:6px;border-radius:5px;border:1px solid var(--border);" data-charge-key="${key}">
         <div style="font-weight:700;color:var(--primary);margin-bottom:4px;font-size:0.8rem;">${key} <button class="btn btn-sm btn-clear" style="float:right;height:22px;padding:2px 6px;" onclick="this.closest('[data-charge-key]').remove()">×</button></div>
         <div style="display:flex;gap:6px;">
@@ -4478,12 +4473,10 @@ function addChargeToDCModal() {
     </div>`);
     document.getElementById('modal-dc-add-amt').value = '';
 }
-
 function saveNewDefaultCharge(mode) {
     const pol = document.getElementById('modal-dc-pol').value.trim();
     if (!pol) return alert('POL is required');
     const commodity = document.getElementById('modal-dc-commodity').value;
-
     const charges = {};
     document.querySelectorAll('#modal-dc-charges-list [data-charge-key]').forEach(row => {
         const key = row.getAttribute('data-charge-key');
@@ -4491,7 +4484,6 @@ function saveNewDefaultCharge(mode) {
         const cur = row.querySelector('.modal-chg-cur').value;
         if (amt > 0) charges[key] = { amount: amt, currency: cur };
     });
-
     let record;
     if (mode === 'sea') {
         const carrier = document.getElementById('modal-dc-carrier').value.trim() || 'ALL';
@@ -4509,7 +4501,6 @@ function saveNewDefaultCharge(mode) {
         if (findDefaultChargeDuplicate(mode, record)) return alert('Duplicate entry!');
         db.defaultLclCharges.push(record);
     }
-
     saveDB();
     closeModal('previewModal');
     renderDefaultChargesMaster(mode);
@@ -4517,14 +4508,12 @@ function saveNewDefaultCharge(mode) {
     autoBackup();
 }
 
-// ==================== CARRIER CHARGE EDIT (with duplicate prevention) ====================
+// ==================== CARRIER CHARGE EDIT ====================
 function openEditCarrierChargeModal(type, idx) {
     const rec = type === 'sealcl' ? db.carrierChargesSeaLcl[idx] : db.carrierChargesAir[idx];
     if (!rec) return alert('Record not found');
-
     const mode = type === 'sealcl' ? (rec.mode || 'sea') : 'air';
     const modeCharges = getDefaultChargeTypes(mode);
-
     let html = `<h3 style="color:var(--primary);margin-bottom:12px;">Edit Carrier-Wise Charge</h3><div class="form-grid-2col">`;
     if (type === 'sealcl') html += `<div class="form-group"><label>Mode</label><select id="modal-cc-mode-edit"><option value="sea" ${rec.mode==='sea'?'selected':''}>SEA</option><option value="lcl" ${rec.mode==='lcl'?'selected':''}>LCL</option></select></div>`;
     html += `<div class="form-group"><label>Carrier</label><select id="modal-cc-carrier-edit"><option value="">Select</option>${db.carriers.map(c => `<option value="${c}" ${rec.carrier===c?'selected':''}>${c}</option>`).join('')}</select></div>`;
@@ -4532,7 +4521,6 @@ function openEditCarrierChargeModal(type, idx) {
     if (type === 'sealcl') html += `<div class="form-group"><label>Container</label><select id="modal-cc-container-edit"><option value="">Select</option>${db.containers.map(c => `<option value="${c}" ${rec.container===c?'selected':''}>${c}</option>`).join('')}</select></div>`;
     html += `<div class="form-group"><label>Commodity</label><select id="modal-cc-commodity-edit"><option value="">Select</option><option value="NON HAZ" ${rec.commodity==='NON HAZ'?'selected':''}>Non Haz</option><option value="HAZ" ${rec.commodity==='HAZ'?'selected':''}>Haz</option></select></div>`;
     html += `</div><h4 style="color:var(--primary);margin:12px 0 8px;">Charges (Sell & Buy)</h4><div id="modal-cc-charges-list">`;
-
     const charges = rec.charges || {};
     Object.entries(charges).forEach(([key, val]) => {
         html += `<div style="margin-bottom:6px;background:var(--bg);padding:6px;border-radius:5px;border:1px solid var(--border);" data-charge-key="${key}">
@@ -4549,7 +4537,6 @@ function openEditCarrierChargeModal(type, idx) {
             </div>
         </div>`;
     });
-
     html += `</div><div style="margin-top:8px;display:flex;gap:8px;align-items:end;">
         <div class="form-group" style="flex:1;"><label>Add Charge</label><select id="modal-cc-add-charge">${modeCharges.map(c => `<option value="${c}">${c}</option>`).join('')}</select></div>
         <button class="btn btn-sm btn-success" style="height:33px;" onclick="addCCChargeToModal()">+</button>
@@ -4562,11 +4549,9 @@ function openEditCarrierChargeModal(type, idx) {
     document.getElementById('previewBody').innerHTML = html;
     openModal('previewModal');
 }
-
 function addCCChargeToModal() {
     const key = document.getElementById('modal-cc-add-charge').value;
     const list = document.getElementById('modal-cc-charges-list');
-
     if (list.querySelector(`[data-charge-key="${key}"]`)) {
         alert('Charge already added!');
         return;
@@ -4578,7 +4563,6 @@ function addCCChargeToModal() {
             return;
         }
     }
-
     list.insertAdjacentHTML('beforeend', `<div style="margin-bottom:6px;background:var(--bg);padding:6px;border-radius:5px;border:1px solid var(--border);" data-charge-key="${key}">
         <div style="font-weight:700;color:var(--primary);margin-bottom:4px;font-size:0.8rem;">${key} <button class="btn btn-sm btn-clear" style="float:right;height:22px;padding:2px 6px;" onclick="this.closest('[data-charge-key]').remove()">×</button></div>
         <div class="form-grid-2col">
@@ -4593,12 +4577,9 @@ function addCCChargeToModal() {
         </div>
     </div>`);
 }
-
 function saveEditCarrierCharge(type, idx) {
     const rec = type === 'sealcl' ? db.carrierChargesSeaLcl[idx] : db.carrierChargesAir[idx];
     if (!rec) return alert('Record not found');
-
-    // Collect updated data
     let updatedRecord;
     if (type === 'sealcl') {
         const mode = document.getElementById('modal-cc-mode-edit').value;
@@ -4615,13 +4596,9 @@ function saveEditCarrierCharge(type, idx) {
         if (!carrier || !pol) return alert('Carrier and POL are required');
         updatedRecord = { carrier, pol, commodity };
     }
-
-    // Check duplicate (excluding current index)
     if (findCarrierChargeDuplicate(type, updatedRecord, idx)) {
         return alert('Duplicate entry!');
     }
-
-    // Apply changes
     if (type === 'sealcl') {
         rec.mode = updatedRecord.mode;
         rec.container = updatedRecord.container;
@@ -4631,8 +4608,6 @@ function saveEditCarrierCharge(type, idx) {
     rec.pol = updatedRecord.pol;
     rec.commodity = updatedRecord.commodity || '';
     rec.updated = new Date().toISOString();
-
-    // Rebuild charges
     rec.charges = {};
     document.querySelectorAll('#modal-cc-charges-list [data-charge-key]').forEach(row => {
         const key = row.getAttribute('data-charge-key');
@@ -4644,15 +4619,12 @@ function saveEditCarrierCharge(type, idx) {
             rec.charges[key] = { amount: sellAmt, currency: sellCur, buyAmount: buyAmt, buyCurrency: buyCur };
         }
     });
-
     saveDB();
     closeModal('previewModal');
     renderCarrierChargesMaster(type);
     alert('Saved!');
     autoBackup();
 }
-
-// ==================== OPEN ADD CARRIER CHARGE MODAL (NEW) ====================
 function openAddCarrierChargeModal(type) {
     const mode = type === 'sealcl' ? 'sea' : 'air';
     const modeCharges = getDefaultChargeTypes(mode);
@@ -4675,7 +4647,6 @@ function openAddCarrierChargeModal(type) {
     document.getElementById('previewBody').innerHTML = html;
     openModal('previewModal');
 }
-
 function saveNewCarrierCharge(type) {
     let record;
     if (type === 'sealcl') {
@@ -4697,7 +4668,6 @@ function saveNewCarrierCharge(type) {
         if (findCarrierChargeDuplicate(type, record)) return alert('Duplicate entry!');
         db.carrierChargesAir.push(record);
     }
-    // Collect charges from the modal
     document.querySelectorAll('#modal-cc-charges-list [data-charge-key]').forEach(row => {
         const key = row.getAttribute('data-charge-key');
         const sellAmt = parseFloat(row.querySelector('.modal-cc-sell-amt').value) || 0;
@@ -4734,7 +4704,6 @@ function deleteDefaultChargeEntry(mode, idx) {
         }
     });
 }
-
 function deleteCarrierChargeEntry(type, idx) {
     if (!db.carrierChargesSeaLcl || idx < 0 || idx >= db.carrierChargesSeaLcl.length) {
         alert('Record not found.');
@@ -4760,10 +4729,8 @@ function previewDefaultCharge(mode, idx) {
     else if (mode === 'air') rec = db.defaultAirCharges[idx];
     else rec = db.defaultLclCharges[idx];
     if (!rec) return alert('Record not found');
-
     const totalSell = Object.values(rec.charges).reduce((sum, c) => sum + (c.amount || 0), 0);
     const totalBuy = Object.values(rec.charges).reduce((sum, c) => sum + (c.buyAmount || c.amount || 0), 0);
-
     let html = `
         <div class="preview-card">
             <h3>📋 Default Charge Preview</h3>
@@ -4817,7 +4784,6 @@ function previewDefaultCharge(mode, idx) {
     document.getElementById('previewBody').innerHTML = html;
     openModal('previewModal');
 }
-
 function duplicateDefaultCharge(mode, idx) {
     let rec;
     if (mode === 'sea') rec = db.defaultSeaCharges[idx];
@@ -4839,7 +4805,6 @@ function duplicateDefaultCharge(mode, idx) {
     renderDefaultChargesMaster(mode);
     alert('Default charge duplicated successfully!');
 }
-
 function previewCarrierCharge(type, idx) {
     let rec = type === 'sealcl' ? db.carrierChargesSeaLcl[idx] : db.carrierChargesAir[idx];
     if (!rec) return alert('Record not found');
@@ -4867,7 +4832,6 @@ function previewCarrierCharge(type, idx) {
     document.getElementById('previewBody').innerHTML = html;
     openModal('previewModal');
 }
-
 function duplicateCarrierCharge(type, idx) {
     let rec = type === 'sealcl' ? db.carrierChargesSeaLcl[idx] : db.carrierChargesAir[idx];
     if (!rec) return alert('Record not found');
@@ -4885,32 +4849,30 @@ function duplicateCarrierCharge(type, idx) {
 function getDefaultChargeTypes(mode) {
     return defaultCharges[mode] || [];
 }
-
 function findDefaultChargeDuplicate(mode, record, excludeIndex = -1) {
     const arr = mode === 'sea' ? db.defaultSeaCharges :
-                mode === 'air' ? db.defaultAirCharges :
-                db.defaultLclCharges;
+        mode === 'air' ? db.defaultAirCharges :
+        db.defaultLclCharges;
     return arr.some((r, i) => {
         if (i === excludeIndex) return false;
         if (mode === 'sea') {
-            return r.carrier === record.carrier && 
-                   r.pol === record.pol && 
-                   r.container === record.container && 
-                   r.commodity === (record.commodity || '');   // ✅ Added commodity
+            return r.carrier === record.carrier &&
+                r.pol === record.pol &&
+                r.container === record.container &&
+                r.commodity === (record.commodity || '');
         } else {
-            return r.pol === record.pol && 
-                   r.commodity === (record.commodity || '');   // ✅ Added commodity
+            return r.pol === record.pol &&
+                r.commodity === (record.commodity || '');
         }
     });
 }
-
 function findCarrierChargeDuplicate(type, record, excludeIndex = -1) {
     const arr = type === 'sealcl' ? db.carrierChargesSeaLcl : db.carrierChargesAir;
     return arr.some((r, i) => {
         if (i === excludeIndex) return false;
         if (type === 'sealcl') {
             return r.mode === record.mode && r.carrier === record.carrier &&
-                   r.pol === record.pol && (r.container || '') === (record.container || '');
+                r.pol === record.pol && (r.container || '') === (record.container || '');
         } else {
             return r.carrier === record.carrier && r.pol === record.pol;
         }
@@ -4928,51 +4890,40 @@ function getLoggedInUserName() {
         return null;
     }
 }
-
 function checkLogin() {
     const user = sessionStorage.getItem('loggedInUser');
     return user ? JSON.parse(user) : null;
 }
-
 function performLogin() {
     const id = document.getElementById('login-id').value.trim();
     const pass = document.getElementById('login-password').value.trim();
     const errorEl = document.getElementById('login-error');
-
     if (!id || !pass) {
         errorEl.textContent = 'Please enter ID and Password.';
         errorEl.style.display = 'block';
         return;
     }
-
     const user = db.users.find(u => u.id === id && u.password === pass);
     if (!user) {
         errorEl.textContent = 'Invalid User ID or Password.';
         errorEl.style.display = 'block';
         return;
     }
-
     errorEl.style.display = 'none';
     sessionStorage.setItem('loggedInUser', JSON.stringify(user));
     document.getElementById('login-overlay').classList.add('hidden');
     applyPermissions();
-    init(); // Re-init with permissions
+    init();
 }
-
 function performLogout() {
     sessionStorage.removeItem('loggedInUser');
     location.reload();
 }
-
 function applyPermissions() {
     const user = checkLogin();
     if (!user) return;
-
-    // Show/hide admin sections based on role
     const adminUserMgmt = document.getElementById('admin-user-management');
     if (adminUserMgmt) adminUserMgmt.style.display = user.role === 'master' ? 'block' : 'none';
-
-    // Filter navigation tabs
     document.querySelectorAll('.tab-btn-vertical').forEach(btn => {
         const tabId = btn.dataset.tab;
         if (user.role === 'master' || user.permissions === 'all' || user.permissions.includes(tabId)) {
@@ -4984,8 +4935,6 @@ function applyPermissions() {
         }
     });
 }
-
-// ===== User Management Functions =====
 function renderUserTable() {
     const tbody = document.getElementById('user-table-body');
     if (!tbody) return;
@@ -5003,24 +4952,21 @@ function renderUserTable() {
         </tr>`;
     }).join('');
 }
-
 function openAddUserModal() {
     openUserModal(null);
 }
-
 function openEditUserModal(idx) {
     const user = db.users[idx];
     if (!user) return alert('User not found.');
     openUserModal(idx, user);
 }
-
 function openUserModal(idx, userData = null) {
     const isEdit = idx !== null;
     const title = isEdit ? 'Edit User' : 'Add New User';
     const data = userData || { id: '', name: '', password: '', role: 'user', permissions: [] };
-
-    // Build permissions checkbox grid
-    const allTabs = ['sea', 'air', 'lcl', 'drafts', 'rates', 'ratesheet', 'dsr', 'bldraft', 'dashboard', 'measurement', 'database', 'sealocal', 'airlocal', 'lcllocal'];
+    const allTabs = ['sea', 'air', 'lcl', 'drafts', 'rates', 'ratesheet', 'dsr', 'bldraft', 'dashboard', 'measurement',
+        'database', 'sealocal', 'airlocal', 'lcllocal'
+    ];
     let permHtml = '<div class="perm-grid">';
     allTabs.forEach(tab => {
         const checked = data.role === 'master' || (data.permissions && data.permissions.includes(tab)) ? 'checked' : '';
@@ -5031,7 +4977,6 @@ function openUserModal(idx, userData = null) {
         </label>`;
     });
     permHtml += '</div>';
-
     const html = `
         <h3 style="color:var(--primary);margin-bottom:12px;">${title}</h3>
         <div class="form-grid-2col">
@@ -5051,12 +4996,10 @@ function openUserModal(idx, userData = null) {
             <button class="btn btn-quoted" onclick="saveUser(${idx})">💾 Save User</button>
         </div>
     `;
-
     document.getElementById('modal-title').textContent = title;
     document.getElementById('previewBody').innerHTML = html;
     openModal('previewModal');
 }
-
 function toggleUserPerms() {
     const role = document.getElementById('modal-user-role').value;
     document.querySelectorAll('#previewBody .user-perm-cb').forEach(cb => {
@@ -5065,18 +5008,16 @@ function toggleUserPerms() {
         cb.closest('label').classList.toggle('disabled', role === 'master');
     });
 }
-
 function saveUser(idx) {
     const id = document.getElementById('modal-user-id').value.trim();
     const name = document.getElementById('modal-user-name').value.trim();
-    const password = document.getElementById('modal-user-pass').value.trim();
+    let password = document.getElementById('modal-user-pass').value.trim();
     const role = document.getElementById('modal-user-role').value;
-
-    if (!id || !password) return alert('User ID and Password are required.');
-    if (idx === null && db.users.find(u => u.id === id)) {
-        return alert('User ID already exists.');
+    if (!id) return alert('User ID is required.');
+    if (idx === null && !password) return alert('New users must have a password.');
+    if (idx !== null && !password) {
+        password = db.users[idx].password;
     }
-
     let permissions = [];
     if (role !== 'master') {
         document.querySelectorAll('#previewBody .user-perm-cb:checked').forEach(cb => permissions.push(cb.value));
@@ -5086,25 +5027,21 @@ function saveUser(idx) {
     } else {
         permissions = 'all';
     }
-
     const userData = { id, name, password, role, permissions };
-
     if (idx !== null && idx >= 0 && idx < db.users.length) {
-        // Prevent Master from deleting themselves, but allow edit
         if (db.users[idx].id === 'Shaikh Shahid' && role !== 'master') {
             return alert('The Master user must remain Master.');
         }
         db.users[idx] = { ...db.users[idx], ...userData };
     } else {
+        if (db.users.find(u => u.id === id)) return alert('User ID already exists.');
         db.users.push(userData);
     }
-
     saveDB();
     closeModal('previewModal');
     renderUserTable();
     alert('User saved successfully!');
 }
-
 function deleteUser(idx) {
     if (idx < 0 || idx >= db.users.length) return alert('User not found.');
     const user = db.users[idx];
@@ -5114,9 +5051,8 @@ function deleteUser(idx) {
     saveDB();
     renderUserTable();
 }
-// ==================== END USER MANAGEMENT ====================
 
-// ==================== SQLITE BACKUP (FIXED WITH RETRY) ====================
+// ==================== SQLITE BACKUP ====================
 async function initSQLite() {
     return new Promise((resolve, reject) => {
         if (window.SQL) {
@@ -5124,7 +5060,6 @@ async function initSQLite() {
             resolve();
             return;
         }
-        // Try loading the library with retry
         let attempts = 0;
         const maxAttempts = MAX_SQLITE_ATTEMPTS;
         const loadScript = () => {
@@ -5155,7 +5090,6 @@ async function initSQLite() {
         loadScript();
     });
 }
-
 async function exportToSQLite() {
     try {
         await initSQLite();
@@ -5178,6 +5112,7 @@ async function exportToSQLite() {
             CREATE TABLE IF NOT EXISTS exchange_rates (currency TEXT, rate REAL);
         `;
         dbInstance.exec(createTables);
+
         function insertData(table, columns, rows) {
             if (!rows || rows.length === 0) return;
             const placeholders = columns.map(() => '?').join(',');
@@ -5194,18 +5129,34 @@ async function exportToSQLite() {
             stmt.free();
         }
         const rates = [...db.rates.sea, ...db.rates.air, ...db.rates.lcl];
-        insertData('rates', ['mode','client','carrier','pol','pod','incoterm','commodity','weight','transit','validityDate','charges','totalSellINR','totalBuyINR','marginINR','marginPct','quoteNumber','status','timestamp','lastModified','followUpStatus','lostReason'], rates.map(r => ({...r, mode: r.mode || 'SEA'})));
+        insertData('rates', ['mode', 'client', 'carrier', 'pol', 'pod', 'incoterm', 'commodity', 'weight', 'transit',
+            'validityDate', 'charges', 'totalSellINR', 'totalBuyINR', 'marginINR', 'marginPct', 'quoteNumber', 'status',
+            'timestamp', 'lastModified', 'followUpStatus', 'lostReason'
+        ], rates.map(r => ({ ...r, mode: r.mode || 'SEA' })));
         const drafts = [...db.drafts.sea, ...db.drafts.air, ...db.drafts.lcl];
-        insertData('drafts', ['mode','client','carrier','pol','pod','incoterm','commodity','weight','transit','validityDate','charges','totalSellINR','totalBuyINR','marginINR','marginPct','quoteNumber','status','timestamp','lastModified'], drafts.map(r => ({...r, mode: r.mode || 'SEA'})));
-        insertData('ratesheet', ['id','carrierName','freightType','pol','pod','containerType','currency','freightAmount','transitTime','commodity','validFrom','validTo','remarks','createdAt','updatedAt'], db.rateSheet);
-        insertData('shipments', ['code','sr','date','type','liner','jobBkg','containerNo','shipper','pol','pod','commodity','weight','incoterm','cargoStatus','docsStatus','dd','eta','dd2','valid','sell','buy','sales','pickup','gatein','remarks','charges','createdAt','updatedAt'], db.shipments);
-        insertData('bldrafts', ['blNumber','shipmentCode','shipper','shipperAddr','consignee','consigneeAddr','notifyParty','vessel','voyage','pol','pod','placeOfDelivery','containers','marks','goodsDesc','freightType','freightAmount','freightCurrency','numOriginals','placeOfIssue','issueDate','signature','status','createdAt','updatedAt'], db.bldrafts);
-        insertData('master_pol', ['value'], db.pol.map(p => ({value: p})));
-        insertData('master_pod', ['value'], db.pod.map(p => ({value: p})));
-        insertData('master_incoterms', ['value'], db.incoterms.map(i => ({value: i})));
-        insertData('master_containers', ['value'], db.containers.map(c => ({value: c})));
-        insertData('master_carriers', ['value'], db.carriers.map(c => ({value: c})));
-        insertData('exchange_rates', ['currency','rate'], Object.entries(db.exchangeRates).map(([k,v]) => ({currency: k, rate: v})));
+        insertData('drafts', ['mode', 'client', 'carrier', 'pol', 'pod', 'incoterm', 'commodity', 'weight', 'transit',
+            'validityDate', 'charges', 'totalSellINR', 'totalBuyINR', 'marginINR', 'marginPct', 'quoteNumber', 'status',
+            'timestamp', 'lastModified'
+        ], drafts.map(r => ({ ...r, mode: r.mode || 'SEA' })));
+        insertData('ratesheet', ['id', 'carrierName', 'freightType', 'pol', 'pod', 'containerType', 'currency',
+            'freightAmount', 'transitTime', 'commodity', 'validFrom', 'validTo', 'remarks', 'createdAt', 'updatedAt'
+        ], db.rateSheet);
+        insertData('shipments', ['code', 'sr', 'date', 'type', 'liner', 'jobBkg', 'containerNo', 'shipper', 'pol', 'pod',
+            'commodity', 'weight', 'incoterm', 'cargoStatus', 'docsStatus', 'dd', 'eta', 'dd2', 'valid', 'sell', 'buy',
+            'sales', 'pickup', 'gatein', 'remarks', 'charges', 'createdAt', 'updatedAt'
+        ], db.shipments);
+        insertData('bldrafts', ['blNumber', 'shipmentCode', 'shipper', 'shipperAddr', 'consignee', 'consigneeAddr',
+            'notifyParty', 'vessel', 'voyage', 'pol', 'pod', 'placeOfDelivery', 'containers', 'marks', 'goodsDesc',
+            'freightType', 'freightAmount', 'freightCurrency', 'numOriginals', 'placeOfIssue', 'issueDate', 'signature',
+            'status', 'createdAt', 'updatedAt'
+        ], db.bldrafts);
+        insertData('master_pol', ['value'], db.pol.map(p => ({ value: p })));
+        insertData('master_pod', ['value'], db.pod.map(p => ({ value: p })));
+        insertData('master_incoterms', ['value'], db.incoterms.map(i => ({ value: i })));
+        insertData('master_containers', ['value'], db.containers.map(c => ({ value: c })));
+        insertData('master_carriers', ['value'], db.carriers.map(c => ({ value: c })));
+        insertData('exchange_rates', ['currency', 'rate'], Object.entries(db.exchangeRates).map(([k, v]) => ({ currency: k,
+            rate: v })));
         const data = dbInstance.export();
         const blob = new Blob([data], { type: 'application/x-sqlite3' });
         const url = URL.createObjectURL(blob);
@@ -5219,7 +5170,6 @@ async function exportToSQLite() {
         alert('SQLite export failed: ' + e.message);
     }
 }
-
 async function importFromSQLite(input) {
     const file = input.files[0];
     if (!file) return;
@@ -5235,6 +5185,7 @@ async function importFromSQLite(input) {
                 const arrayBuffer = e.target.result;
                 const uint8Array = new Uint8Array(arrayBuffer);
                 const dbInstance = new SQL.Database(uint8Array);
+
                 function readTable(tableName) {
                     const stmt = dbInstance.prepare(`SELECT * FROM ${tableName}`);
                     const rows = [];
@@ -5242,7 +5193,7 @@ async function importFromSQLite(input) {
                         const row = stmt.getAsObject();
                         Object.keys(row).forEach(key => {
                             if (typeof row[key] === 'string' && row[key].startsWith('{')) {
-                                try { row[key] = JSON.parse(row[key]); } catch(e) {}
+                                try { row[key] = JSON.parse(row[key]); } catch (e) {}
                             }
                         });
                         rows.push(row);
@@ -5260,11 +5211,14 @@ async function importFromSQLite(input) {
                 const newIncoterms = readTable('master_incoterms').map(r => r.value);
                 const newContainers = readTable('master_containers').map(r => r.value);
                 const newCarriers = readTable('master_carriers').map(r => r.value);
-                const newExchangeRates = readTable('exchange_rates').reduce((acc, r) => { acc[r.currency] = r.rate; return acc; }, {});
+                const newExchangeRates = readTable('exchange_rates').reduce((acc, r) => { acc[r.currency] = r.rate; return acc; },
+                {});
                 db.rates = { sea: [], air: [], lcl: [] };
-                newRates.forEach(r => { const mode = (r.mode || 'SEA').toLowerCase(); if (db.rates[mode]) db.rates[mode].push(r); });
+                newRates.forEach(r => { const mode = (r.mode || 'SEA').toLowerCase(); if (db.rates[mode]) db.rates[mode].push(
+                        r); });
                 db.drafts = { sea: [], air: [], lcl: [] };
-                newDrafts.forEach(r => { const mode = (r.mode || 'SEA').toLowerCase(); if (db.drafts[mode]) db.drafts[mode].push(r); });
+                newDrafts.forEach(r => { const mode = (r.mode || 'SEA').toLowerCase(); if (db.drafts[mode]) db.drafts[mode].push(
+                        r); });
                 db.rateSheet = newRateSheet;
                 db.shipments = newShipments;
                 db.bldrafts = newBLDrafts;
@@ -5286,42 +5240,35 @@ async function importFromSQLite(input) {
     input.value = '';
 }
 
-// ==================== DSR DESIGN MODE (Drag & Drop) ====================
+// ==================== DSR DESIGN MODE ====================
 function toggleDsrDesignMode() {
     dsrDesignMode = !dsrDesignMode;
     const body = document.querySelector('#seaDsrBody, #airDsrBody');
     if (body) body.classList.toggle('dsr-design-mode', dsrDesignMode);
 }
-
-// DSR Drag & Drop Event Listeners
 document.addEventListener('dragstart', function(e) {
     const field = e.target.closest('.dsr-field');
     if (!field) return;
     e.dataTransfer.setData('text/plain', field.dataset.fieldId || field.id || '');
     setTimeout(() => field.classList.add('dragging'), 0);
 });
-
 document.addEventListener('dragover', function(e) {
     e.preventDefault();
     const field = e.target.closest('.dsr-field');
     if (field && dsrDesignMode) field.classList.add('drag-over');
 });
-
 document.addEventListener('dragleave', function(e) {
     const field = e.target.closest('.dsr-field');
     if (field) field.classList.remove('drag-over');
 });
-
 document.addEventListener('drop', function(e) {
     e.preventDefault();
     const target = e.target.closest('.dsr-field');
     if (!target || !dsrDesignMode) return;
     target.classList.remove('drag-over');
-
     const sourceId = e.dataTransfer.getData('text/plain');
     const source = target.parentElement.querySelector(`[data-field-id="${sourceId}"]`);
     if (!source || source === target) return;
-
     const parent = target.parentElement;
     const children = Array.from(parent.children);
     const srcIdx = children.indexOf(source);
@@ -5334,48 +5281,2280 @@ document.addEventListener('drop', function(e) {
     parent.querySelectorAll('.dragging').forEach(el => el.classList.remove('dragging'));
 });
 
+// ==================== GLOBAL OMNI-SEARCH ====================
+let globalSearchTimeout = null;
+
+function debouncedGlobalSearch() {
+    clearTimeout(globalSearchTimeout);
+    globalSearchTimeout = setTimeout(() => performGlobalSearch(), 300);
+}
+
+function performGlobalSearch() {
+    const input = document.getElementById('global-search');
+    const resultsContainer = document.getElementById('global-search-results');
+    const term = input.value.trim().toLowerCase();
+    if (term.length < 2) {
+        resultsContainer.classList.remove('show');
+        resultsContainer.innerHTML = '';
+        return;
+    }
+    let matches = [];
+
+    function isMatch(rec, term) {
+        const text =
+            `${rec.quoteNumber||''} ${rec.client||''} ${rec.pol||''} ${rec.pod||''} ${rec.carrier||''} ${rec.shipper||''} ${rec.code||''} ${rec.blNumber||''} ${rec.carrierName||''}`.toLowerCase();
+        return text.includes(term);
+    }
+    ['sea', 'air', 'lcl'].forEach(mode => {
+        db.drafts[mode].forEach((rec, idx) => {
+            if (isMatch(rec, term)) {
+                matches.push({
+                    category: 'Draft',
+                    tab: 'drafts',
+                    mode: mode,
+                    idx: idx,
+                    label: `${rec.quoteNumber} - ${rec.client}`,
+                    subtitle: `${rec.pol || 'N/A'} → ${rec.pod || 'N/A'}`
+                });
+            }
+        });
+    });
+    ['sea', 'air', 'lcl'].forEach(mode => {
+        db.rates[mode].forEach((rec, idx) => {
+            if (isMatch(rec, term)) {
+                matches.push({
+                    category: 'Quote',
+                    tab: 'rates',
+                    mode: mode,
+                    idx: idx,
+                    label: `${rec.quoteNumber} - ${rec.client}`,
+                    subtitle: `${rec.pol || 'N/A'} → ${rec.pod || 'N/A'}`
+                });
+            }
+        });
+    });
+    db.shipments.forEach((rec, idx) => {
+        if (isMatch(rec, term)) {
+            matches.push({
+                category: 'Shipment',
+                tab: 'dsr',
+                mode: 'dsr',
+                idx: idx,
+                label: `${rec.code} - ${rec.shipper}`,
+                subtitle: `${rec.pol || 'N/A'} → ${rec.pod || 'N/A'}`
+            });
+        }
+    });
+    db.bldrafts.forEach((rec, idx) => {
+        if (isMatch(rec, term)) {
+            matches.push({
+                category: 'BL Draft',
+                tab: 'bldraft',
+                mode: 'bldraft',
+                idx: idx,
+                label: `${rec.blNumber || 'BL-Draft'} - ${rec.shipper}`,
+                subtitle: `${rec.pol || 'N/A'} → ${rec.pod || 'N/A'}`
+            });
+        }
+    });
+    db.rateSheet.forEach((rec, idx) => {
+        if (isMatch(rec, term)) {
+            matches.push({
+                category: 'Rate Sheet',
+                tab: 'ratesheet',
+                mode: 'ratesheet',
+                idx: idx,
+                label: `${rec.carrierName} - ${rec.freightType}`,
+                subtitle: `${rec.pol || 'N/A'} → ${rec.pod || 'N/A'}`
+            });
+        }
+    });
+    if (matches.length === 0) {
+        resultsContainer.innerHTML =
+            `<div class="no-results">No records found matching "<strong>${input.value}</strong>"</div>`;
+        resultsContainer.classList.add('show');
+        return;
+    }
+    matches = matches.slice(0, 15);
+    let html = '';
+    let lastCategory = '';
+    matches.forEach(item => {
+        if (item.category !== lastCategory) {
+            html += `<div class="result-group-title">${item.category}</div>`;
+            lastCategory = item.category;
+        }
+        html += `<div class="result-item" onclick="jumpToRecord('${item.tab}', '${item.mode}', ${item.idx})">
+                    <div class="title">${item.label}</div>
+                    <div class="subtitle">${item.subtitle}</div>
+                    <span class="tag">${item.category}</span>
+                </div>`;
+    });
+    resultsContainer.innerHTML = html;
+    resultsContainer.classList.add('show');
+}
+
+function jumpToRecord(tab, mode, idx) {
+    const resultsContainer = document.getElementById('global-search-results');
+    resultsContainer.classList.remove('show');
+    document.getElementById('global-search').value = '';
+    switchToTab(tab);
+    setTimeout(() => {
+        if (tab === 'drafts' || tab === 'rates') {
+            editRecord(tab, mode, idx);
+        } else if (tab === 'dsr') {
+            editDsrShipment(idx);
+        } else if (tab === 'bldraft') {
+            openBLModal(idx);
+        } else if (tab === 'ratesheet') {
+            openRateSheetModal(idx);
+        }
+    }, 400);
+}
+document.addEventListener('click', function(e) {
+    const wrapper = document.querySelector('.global-search-wrapper');
+    const results = document.getElementById('global-search-results');
+    if (wrapper && !wrapper.contains(e.target)) {
+        results.classList.remove('show');
+    }
+});
+
+// ==================== MEASUREMENT DEFAULTS (New) ====================
+function refreshMeasurementDefaults() {
+    const d = db.defaults || {};
+    const dutyPct = document.getElementById('duty-pct');
+    if (dutyPct) dutyPct.value = d.inDuty || 0;
+    const dutyService = document.getElementById('duty-service');
+    if (dutyService) dutyService.value = d.inSocialWelfare || 0;
+    const dutyGst = document.getElementById('duty-gst');
+    if (dutyGst) dutyGst.value = d.gst || 0;
+    const insPct = document.getElementById('ins-pct');
+    if (insPct) insPct.value = d.insurance || 0;
+    const insGst = document.getElementById('ins-gst');
+    if (insGst) insGst.value = d.gst || 0;
+    const prodProfit = document.getElementById('prod-profit');
+    if (prodProfit) prodProfit.value = d.profitMargin || 0;
+    const prodDrawback = document.getElementById('prod-drawback');
+    if (prodDrawback) prodDrawback.value = d.drawback || 0;
+    const prodRodtep = document.getElementById('prod-rodtep');
+    if (prodRodtep) prodRodtep.value = d.rodtep || 0;
+    const usDutyPct = document.getElementById('us-duty-pct');
+    if (usDutyPct) usDutyPct.value = d.usDuty || 0;
+    const usDutyTariff = document.getElementById('us-duty-tariff');
+    if (usDutyTariff) usDutyTariff.value = d.usTariff || 0;
+    const usDutyMpf = document.getElementById('us-duty-mpf');
+    if (usDutyMpf) usDutyMpf.value = d.usMPF || 0;
+    const usDutyHmf = document.getElementById('us-duty-hmf');
+    if (usDutyHmf) usDutyHmf.value = d.usHMF || 0;
+    const defaultCur = d.defaultCurrency || 'USD';
+    ['duty-currency', 'prod-currency', 'ins-currency', 'us-duty-currency'].forEach(id => {
+        const sel = document.getElementById(id);
+        if (sel) {
+            sel.value = defaultCur;
+            setExchangeRate(id.replace('-currency', '-exrate'), id);
+        }
+    });
+}
+
+function saveMeasurementDefaults() {
+    db.defaults.gst = parseFloat(document.getElementById('def-gst').value) || 0;
+    db.defaults.insurance = parseFloat(document.getElementById('def-insurance').value) || 0;
+    db.defaults.profitMargin = parseFloat(document.getElementById('def-profit').value) || 0;
+    db.defaults.defaultCurrency = document.getElementById('def-currency').value || 'USD';
+    db.defaults.usDuty = parseFloat(document.getElementById('def-us-duty').value) || 0;
+    db.defaults.usTariff = parseFloat(document.getElementById('def-us-tariff').value) || 0;
+    db.defaults.usMPF = parseFloat(document.getElementById('def-us-mpf').value) || 0;
+    db.defaults.usHMF = parseFloat(document.getElementById('def-us-hmf').value) || 0;
+    db.defaults.inDuty = parseFloat(document.getElementById('def-in-duty').value) || 0;
+    db.defaults.inSocialWelfare = parseFloat(document.getElementById('def-in-social').value) || 0;
+    db.defaults.drawback = parseFloat(document.getElementById('def-drawback').value) || 0;
+    db.defaults.rodtep = parseFloat(document.getElementById('def-rodtep').value) || 0;
+    saveDB();
+    alert('Measurement defaults saved!');
+    refreshMeasurementDefaults();
+}
+
 // ==================== INIT ====================
 function init() {
     const user = checkLogin();
     const overlay = document.getElementById('login-overlay');
-
     if (!user) {
-        // Ensure overlay is visible
         overlay.classList.remove('hidden');
-        // Do not proceed with app initialization
         return;
     }
-
-    // Hide login overlay
     overlay.classList.add('hidden');
-
     applyTheme(db.theme);
     restoreNavState();
     const lastTab = db.navState.lastTab || 'sea';
     switchToTab(lastTab);
     populateDropdowns();
     renderDatabase();
-
     if (lastTab === 'drafts') renderRecords('drafts');
     if (lastTab === 'rates') renderRecords('rates');
-    if (lastTab === 'ratesheet') { renderRateSheet(); updateExpiryDashboard(); }
+    if (lastTab === 'ratesheet') { renderRateSheet();
+        updateExpiryDashboard(); }
     if (lastTab === 'dsr') renderShipments();
     if (lastTab === 'bldraft') renderBLDrafts();
     if (lastTab === 'followup') renderFollowups();
     if (lastTab === 'dashboard') renderDashboard();
-    if (lastTab === 'measurement') { renderContainerDimensions(); document.getElementById('calc-display')?.focus(); }
+    if (lastTab === 'measurement') {
+        refreshMeasurementDefaults();
+    }
     if (lastTab === 'sealocal' || lastTab === 'airlocal' || lastTab === 'lcllocal') {
         const mode = lastTab === 'sealocal' ? 'sea' : lastTab === 'airlocal' ? 'air' : 'lcl';
         renderDefaultChargesMaster(mode);
         renderCarrierChargesMaster(mode === 'sea' ? 'sealcl' : mode);
     }
-    ['sea', 'air', 'lcl'].forEach(mode => { buildChargesGrid(mode); setValidityDefault(mode); });
+    ['sea', 'air', 'lcl'].forEach(mode => { buildChargesGrid(mode);
+        setValidityDefault(mode); });
     if (backupFolderHandle) {
         startAutoBackup();
         document.getElementById('backup-folder-path').textContent = `📁 ${backupFolderHandle.name}`;
     }
     console.log('🚢 Gateway EXIM Freight Quotation System loaded successfully.');
-    console.log(`📊 ${db.rates.sea.length + db.rates.air.length + db.rates.lcl.length} quoted records, ${db.drafts.sea.length + db.drafts.air.length + db.drafts.lcl.length} drafts, ${db.shipments.length} shipments.`);
+    console.log(
+        `📊 ${db.rates.sea.length + db.rates.air.length + db.rates.lcl.length} quoted records, ${db.drafts.sea.length + db.drafts.air.length + db.drafts.lcl.length} drafts, ${db.shipments.length} shipments.`
+        );
+}
+document.addEventListener('DOMContentLoaded', init);
+
+// ==================== AUTO-SAVE MEASUREMENT DEFAULTS ON CHANGE ====================
+function autoSaveMeasurementDefaults() {
+    const inputIds = [
+        'def-gst', 'def-insurance', 'def-profit',
+        'def-us-tariff', 'def-us-mpf', 'def-us-hmf',
+        'def-in-duty', 'def-in-social', 'def-drawback', 'def-rodtep'
+    ];
+    inputIds.forEach(id => {
+        const el = document.getElementById(id);
+        if (el) {
+            el.addEventListener('input', function() {
+                db.defaults.gst = parseFloat(document.getElementById('def-gst').value) || 0;
+                db.defaults.insurance = parseFloat(document.getElementById('def-insurance').value) || 0;
+                db.defaults.profitMargin = parseFloat(document.getElementById('def-profit').value) || 0;
+                db.defaults.usTariff = parseFloat(document.getElementById('def-us-tariff').value) || 0;
+                db.defaults.usMPF = parseFloat(document.getElementById('def-us-mpf').value) || 0;
+                db.defaults.usHMF = parseFloat(document.getElementById('def-us-hmf').value) || 0;
+                db.defaults.inDuty = parseFloat(document.getElementById('def-in-duty').value) || 0;
+                db.defaults.inSocialWelfare = parseFloat(document.getElementById('def-in-social').value) || 0;
+                db.defaults.drawback = parseFloat(document.getElementById('def-drawback').value) || 0;
+                db.defaults.rodtep = parseFloat(document.getElementById('def-rodtep').value) || 0;
+                saveDB();
+                refreshMeasurementDefaults();
+            });
+        }
+    });
 }
 
-document.addEventListener('DOMContentLoaded', init);
+document.addEventListener('DOMContentLoaded', function() {
+    autoSaveMeasurementDefaults();
+});
+
+// ==================== MEASUREMENT CALCULATORS ====================
+function showMeasurementMenu() {
+    document.getElementById('measurement-menu').style.display = 'block';
+    document.getElementById('measurement-content').style.display = 'none';
+    document.querySelectorAll('#measurement-content .calc-panel').forEach(p => p.classList.remove('active'));
+}
+
+function switchCalcTab(tabId) {
+    document.getElementById('measurement-menu').style.display = 'none';
+    document.getElementById('measurement-content').style.display = 'block';
+    document.querySelectorAll('#measurement-content .calc-panel').forEach(p => p.classList.remove('active'));
+    const panel = document.getElementById('calc-' + tabId);
+    if (panel) panel.classList.add('active');
+
+    if (tabId === 'stuffing') {
+        initStuffingPlanning();
+    }
+
+    if (['duty', 'product', 'insurance', 'us-duty'].includes(tabId)) {
+        const ids = ['duty-currency', 'prod-currency', 'ins-currency', 'us-duty-currency'];
+        ids.forEach(id => {
+            const sel = document.getElementById(id);
+            if (sel && sel.options.length === 0) {
+                sel.innerHTML = '<option value="">Select</option>' + Object.keys(db.exchangeRates).map(c =>
+                    `<option value="${c}">${c}</option>`).join('');
+            }
+        });
+    }
+
+    refreshMeasurementDefaults();
+    if (tabId === 'duty') calcDuty();
+    else if (tabId === 'product') calcProduct();
+    else if (tabId === 'insurance') calcInsurance();
+    else if (tabId === 'us-duty') calcUSDuty();
+}
+
+function setExchangeRate(targetInputId, currencyInputId) {
+    const cur = document.getElementById(currencyInputId).value;
+    const rate = db.exchangeRates[cur];
+    if (rate) {
+        document.getElementById(targetInputId).value = rate;
+        document.getElementById(targetInputId).disabled = false;
+    } else {
+        document.getElementById(targetInputId).value = '';
+        document.getElementById(targetInputId).disabled = false;
+    }
+    const panel = document.getElementById(currencyInputId).closest('.calc-panel');
+    if (panel.id === 'calc-duty') calcDuty();
+    else if (panel.id === 'calc-product') calcProduct();
+    else if (panel.id === 'calc-insurance') calcInsurance();
+    else if (panel.id === 'calc-us-duty') calcUSDuty();
+}
+
+document.addEventListener('change', function(e) {
+    if (e.target.id === 'duty-currency') setExchangeRate('duty-exrate', 'duty-currency');
+    if (e.target.id === 'prod-currency') setExchangeRate('prod-exrate', 'prod-currency');
+    if (e.target.id === 'ins-currency') setExchangeRate('ins-exrate', 'ins-currency');
+    if (e.target.id === 'us-duty-currency') setExchangeRate('us-duty-exrate', 'us-duty-currency');
+});
+
+function calcDuty() {
+    const val = parseFloat(document.getElementById('duty-value').value) || 0;
+    const freightInsUsd = parseFloat(document.getElementById('duty-freight').value) || 0;
+    const ex = parseFloat(document.getElementById('duty-exrate').value) || 0;
+    const dutyPct = parseFloat(document.getElementById('duty-pct').value) || 0;
+    const swsPct = parseFloat(document.getElementById('duty-service').value) || 0;
+    const gstPct = parseFloat(document.getElementById('duty-gst').value) || 0;
+
+    const cargoInr = val * ex;
+    const freightInsInr = freightInsUsd * ex;
+
+    const duty = cargoInr * (dutyPct / 100);
+    const sws = cargoInr * (swsPct / 100);
+    const gstOnDuty = duty * (gstPct / 100);
+    const totalGst = gstPct / 100 * (cargoInr + freightInsInr + duty + sws);
+    const totalPayable = duty + sws + totalGst;
+
+    const valUsd = val;
+    const freightInsUsdDisplay = freightInsUsd;
+    const dutyUsd = duty / ex;
+    const swsUsd = sws / ex;
+    const gstOnDutyUsd = gstOnDuty / ex;
+    const totalGstUsd = totalGst / ex;
+    const totalPayableUsd = totalPayable / ex;
+
+    const formatUSD = (n) => '$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2,
+        maximumFractionDigits: 2 });
+
+    document.getElementById('duty-inr').textContent = formatINR(cargoInr);
+    document.getElementById('duty-usd').textContent = formatUSD(valUsd);
+    document.getElementById('duty-frt-inr').textContent = formatINR(freightInsInr);
+    document.getElementById('duty-frt-usd').textContent = formatUSD(freightInsUsdDisplay);
+    document.getElementById('duty-amt').textContent = formatINR(duty);
+    document.getElementById('duty-amt-usd').textContent = formatUSD(dutyUsd);
+    document.getElementById('duty-service-amt').textContent = formatINR(sws);
+    document.getElementById('duty-service-usd').textContent = formatUSD(swsUsd);
+    document.getElementById('duty-gst-amt').textContent = formatINR(gstOnDuty);
+    document.getElementById('duty-gst-usd').textContent = formatUSD(gstOnDutyUsd);
+    document.getElementById('duty-total-gst').textContent = formatINR(totalGst);
+    document.getElementById('duty-total-gst-usd').textContent = formatUSD(totalGstUsd);
+    document.getElementById('duty-total').textContent = formatINR(totalPayable);
+    document.getElementById('duty-total-usd').textContent = formatUSD(totalPayableUsd);
+}
+
+function calcProduct() {
+    const pricePerUnit = parseFloat(document.getElementById('prod-price').value) || 0;
+    const weight = parseFloat(document.getElementById('prod-weight').value) || 0;
+    const unit = document.getElementById('prod-unit').value;
+    const ex = parseFloat(document.getElementById('prod-exrate').value) || 0;
+    const freightUsd = parseFloat(document.getElementById('prod-freight').value) || 0;
+    const otherUsd = parseFloat(document.getElementById('prod-other').value) || 0;
+    const drawbackPct = parseFloat(document.getElementById('prod-drawback').value) || 0;
+    const rodtepPct = parseFloat(document.getElementById('prod-rodtep').value) || 0;
+    const profitPct = parseFloat(document.getElementById('prod-profit').value) || 0;
+
+    let weightKgs = weight;
+    if (unit === 'tons') weightKgs = weight * 1000;
+
+    const productPriceUsd = pricePerUnit * weightKgs;
+    const insuranceUsd = Math.max(productPriceUsd * 0.0005, 25);
+    const drawbackUsd = productPriceUsd * (drawbackPct / 100);
+    const rodtepUsd = productPriceUsd * (rodtepPct / 100);
+    const totalCostUsd = productPriceUsd + freightUsd + insuranceUsd + otherUsd;
+
+    const productPriceInr = productPriceUsd * ex;
+    const freightInr = freightUsd * ex;
+    const insuranceInr = insuranceUsd * ex;
+    const otherInr = otherUsd * ex;
+    const drawbackInr = drawbackUsd * ex;
+    const rodtepInr = rodtepUsd * ex;
+    const totalCostInr = totalCostUsd * ex;
+
+    const profitInr = totalCostInr * (profitPct / 100);
+    const profitUsd = profitInr / ex;
+    const finalPriceInr = totalCostInr + profitInr;
+    const finalPriceUsd = finalPriceInr / ex;
+    const totalMarginInr = drawbackInr + rodtepInr + profitInr;
+    const totalMarginUsd = drawbackUsd + rodtepUsd + profitUsd;
+
+    const formatUSD = (n) => '$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2,
+        maximumFractionDigits: 2 });
+
+    document.getElementById('prod-inr').textContent = formatINR(productPriceInr);
+    document.getElementById('prod-usd').textContent = formatUSD(productPriceUsd);
+    document.getElementById('prod-ins-inr').textContent = formatINR(insuranceInr);
+    document.getElementById('prod-ins-usd').textContent = formatUSD(insuranceUsd);
+    document.getElementById('prod-freight-inr').textContent = formatINR(freightInr);
+    document.getElementById('prod-freight-usd').textContent = formatUSD(freightUsd);
+    document.getElementById('prod-other-inr').textContent = formatINR(otherInr);
+    document.getElementById('prod-other-usd').textContent = formatUSD(otherUsd);
+    document.getElementById('prod-landed-inr').textContent = formatINR(totalCostInr);
+    document.getElementById('prod-landed-usd').textContent = formatUSD(totalCostUsd);
+    document.getElementById('prod-profit-inr').textContent = formatINR(profitInr);
+    document.getElementById('prod-profit-usd').textContent = formatUSD(profitUsd);
+    document.getElementById('prod-final').textContent = formatINR(finalPriceInr);
+    document.getElementById('prod-final-usd').textContent = formatUSD(finalPriceUsd);
+
+    document.getElementById('prod-drawback-inr').textContent = formatINR(drawbackInr);
+    document.getElementById('prod-drawback-usd').textContent = formatUSD(drawbackUsd);
+    document.getElementById('prod-rodtep-inr').textContent = formatINR(rodtepInr);
+    document.getElementById('prod-rodtep-usd').textContent = formatUSD(rodtepUsd);
+    document.getElementById('prod-benefit-profit-inr').textContent = formatINR(profitInr);
+    document.getElementById('prod-benefit-profit-usd').textContent = formatUSD(profitUsd);
+    document.getElementById('prod-total-margin-inr').textContent = formatINR(totalMarginInr);
+    document.getElementById('prod-total-margin-usd').textContent = formatUSD(totalMarginUsd);
+}
+
+function createStuffingRow(index) {
+    const row = document.createElement('tr');
+    row.style.borderBottom = '1px solid var(--border)';
+    row.style.background = index % 2 === 0 ? 'var(--bg)' : 'var(--card-bg)';
+    row.innerHTML = `
+        <td style="padding:8px 14px;text-align:center;font-weight:600;">${index + 1}</td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="text" class="stuffing-vessel" placeholder="Vessel name" style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="date" class="stuffing-departure" onchange="updateStuffingDates(this)" style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="date" class="stuffing-eta" readonly style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;background:#F1F5F9;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="date" class="stuffing-gate-open" readonly style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;background:#F1F5F9;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="date" class="stuffing-gate-cut" readonly style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;background:#F1F5F9;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="date" class="stuffing-sb-cut" readonly style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;background:#F1F5F9;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="date" class="stuffing-si-cut" readonly style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;background:#F1F5F9;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <button class="btn btn-sm btn-clear" onclick="removeStuffingRow(this)" style="padding:2px 8px;">×</button>
+        </td>
+    `;
+    return row;
+}
+
+function addStuffingRow() {
+    const tbody = document.getElementById('stuffing-table-body');
+    const index = tbody.children.length;
+    const row = createStuffingRow(index);
+    tbody.appendChild(row);
+}
+
+function removeStuffingRow(btn) {
+    const row = btn.closest('tr');
+    const tbody = document.getElementById('stuffing-table-body');
+    if (tbody.children.length > 1) {
+        row.remove();
+        tbody.querySelectorAll('tr').forEach((tr, i) => {
+            tr.querySelector('td:first-child').textContent = i + 1;
+        });
+    } else {
+        alert('You must keep at least one row.');
+    }
+}
+
+function clearStuffingRows() {
+    if (confirm('Clear all stuffing rows?')) {
+        const tbody = document.getElementById('stuffing-table-body');
+        tbody.innerHTML = '';
+        addStuffingRow();
+    }
+}
+
+function updateStuffingDates(departureInput) {
+    const row = departureInput.closest('tr');
+    const depDate = new Date(departureInput.value);
+    if (isNaN(depDate)) return;
+    const offsetEta = parseInt(document.getElementById('offset-eta').value) || -1;
+    const offsetGateOpen = parseInt(document.getElementById('offset-gate-open').value) || -5;
+    const offsetGateCut = parseInt(document.getElementById('offset-gate-cut').value) || -2;
+    const offsetSbCut = parseInt(document.getElementById('offset-sb-cut').value) || -2;
+    const offsetSiCut = parseInt(document.getElementById('offset-si-cut').value) || -3;
+    const formatDate = (date) => date.toISOString().split('T')[0];
+    const eta = new Date(depDate);
+    eta.setDate(eta.getDate() + offsetEta);
+    row.querySelector('.stuffing-eta').value = formatDate(eta);
+    const gateOpen = new Date(depDate);
+    gateOpen.setDate(gateOpen.getDate() + offsetGateOpen);
+    row.querySelector('.stuffing-gate-open').value = formatDate(gateOpen);
+    const gateCut = new Date(depDate);
+    gateCut.setDate(gateCut.getDate() + offsetGateCut);
+    row.querySelector('.stuffing-gate-cut').value = formatDate(gateCut);
+    const sbCut = new Date(depDate);
+    sbCut.setDate(sbCut.getDate() + offsetSbCut);
+    row.querySelector('.stuffing-sb-cut').value = formatDate(sbCut);
+    const siCut = new Date(depDate);
+    siCut.setDate(siCut.getDate() + offsetSiCut);
+    row.querySelector('.stuffing-si-cut').value = formatDate(siCut);
+}
+
+function initStuffingPlanning() {
+    const tbody = document.getElementById('stuffing-table-body');
+    if (tbody && tbody.children.length === 0) {
+        addStuffingRow();
+    }
+}
+
+function calcInsurance() {
+    const val = parseFloat(document.getElementById('ins-value').value) || 0;
+    const ex = parseFloat(document.getElementById('ins-exrate').value) || 0;
+    const insPct = parseFloat(document.getElementById('ins-pct').value) || 0;
+    const gstPct = parseFloat(document.getElementById('ins-gst').value) || 0;
+    const totalRow = document.getElementById('ins-total-row');
+    if (val === 0 || ex === 0) {
+        totalRow.style.display = 'none';
+        document.getElementById('ins-inr').textContent = '₹ 0.00';
+        document.getElementById('ins-usd').textContent = '$ 0.00';
+        document.getElementById('ins-amt').textContent = '₹ 0.00';
+        document.getElementById('ins-amt-usd').textContent = '$ 0.00';
+        document.getElementById('ins-gst-amt').textContent = '₹ 0.00';
+        document.getElementById('ins-gst-usd').textContent = '$ 0.00';
+        document.getElementById('ins-total').textContent = '₹ 0.00';
+        document.getElementById('ins-total-usd').textContent = '$ 0.00';
+        return;
+    }
+    const cargoValueUsd = val;
+    const calculatedIns = cargoValueUsd * (insPct / 100);
+    const insUsd = Math.max(calculatedIns, 25);
+    const insInr = insUsd * ex;
+    const gstUsd = insUsd * (gstPct / 100);
+    const gstInr = gstUsd * ex;
+    const totalUsd = insUsd + gstUsd;
+    const totalInr = insInr + gstInr;
+    const formatUSD = (n) => '$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2,
+        maximumFractionDigits: 2 });
+    document.getElementById('ins-inr').textContent = formatINR(val * ex);
+    document.getElementById('ins-usd').textContent = formatUSD(val);
+    document.getElementById('ins-amt').textContent = formatINR(insInr);
+    document.getElementById('ins-amt-usd').textContent = formatUSD(insUsd);
+    document.getElementById('ins-gst-amt').textContent = formatINR(gstInr);
+    document.getElementById('ins-gst-usd').textContent = formatUSD(gstUsd);
+    document.getElementById('ins-total').textContent = formatINR(totalInr);
+    document.getElementById('ins-total-usd').textContent = formatUSD(totalUsd);
+    totalRow.style.display = 'table-footer-group';
+}
+
+function calcUSDuty() {
+    const val = parseFloat(document.getElementById('us-duty-value').value) || 0;
+    const ex = parseFloat(document.getElementById('us-duty-exrate').value) || 0;
+    const dutyPct = parseFloat(document.getElementById('us-duty-pct').value) || 0;
+    const tariffPct = parseFloat(document.getElementById('us-duty-tariff').value) || 0;
+    const mpfPct = parseFloat(document.getElementById('us-duty-mpf').value) || 0;
+    const hmfPct = parseFloat(document.getElementById('us-duty-hmf').value) || 0;
+    const inr = val * ex;
+    const duty = inr * (dutyPct / 100);
+    const tariff = inr * (tariffPct / 100);
+    const mpf = inr * (mpfPct / 100);
+    const hmf = inr * (hmfPct / 100);
+    const total = duty + tariff + mpf + hmf;
+    const valUsd = val;
+    const dutyUsd = duty / ex;
+    const tariffUsd = tariff / ex;
+    const mpfUsd = mpf / ex;
+    const hmfUsd = hmf / ex;
+    const totalUsd = total / ex;
+    const formatUSD = (n) => '$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2,
+        maximumFractionDigits: 2 });
+    document.getElementById('us-duty-inr').textContent = formatINR(inr);
+    document.getElementById('us-duty-usd').textContent = formatUSD(valUsd);
+    document.getElementById('us-duty-amt').textContent = formatINR(duty);
+    document.getElementById('us-duty-amt-usd').textContent = formatUSD(dutyUsd);
+    document.getElementById('us-duty-tariff-amt').textContent = formatINR(tariff);
+    document.getElementById('us-duty-tariff-usd').textContent = formatUSD(tariffUsd);
+    document.getElementById('us-duty-mpf-amt').textContent = formatINR(mpf);
+    document.getElementById('us-duty-mpf-usd').textContent = formatUSD(mpfUsd);
+    document.getElementById('us-duty-hmf-amt').textContent = formatINR(hmf);
+    document.getElementById('us-duty-hmf-usd').textContent = formatUSD(hmfUsd);
+    document.getElementById('us-duty-total').textContent = formatINR(total);
+    document.getElementById('us-duty-total-usd').textContent = formatUSD(totalUsd);
+}
+
+if (!db.stuffing) db.stuffing = [];
+
+function createStuffingRow(index, data) {
+    const row = document.createElement('tr');
+    row.style.borderBottom = '1px solid var(--border)';
+    row.style.background = index % 2 === 0 ? 'var(--bg)' : 'var(--card-bg)';
+    row.dataset.index = index;
+    row.innerHTML = `
+        <td style="padding:8px 14px;text-align:center;font-weight:600;">${index + 1}</td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="text" class="stuffing-vessel" value="${data?.vessel || ''}" placeholder="Vessel name" style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;" oninput="onStuffingInput()" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="date" class="stuffing-departure" value="${data?.departure || ''}" onchange="updateStuffingDates(this); onStuffingInput();" style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="date" class="stuffing-eta" value="${data?.eta || ''}" readonly style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;background:#f1f5f9;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="date" class="stuffing-gate-open" value="${data?.gateOpen || ''}" readonly style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;background:#f1f5f9;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="date" class="stuffing-gate-cut" value="${data?.gateCut || ''}" readonly style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;background:#f1f5f9;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="date" class="stuffing-sb-cut" value="${data?.sbCut || ''}" readonly style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;background:#f1f5f9;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <input type="date" class="stuffing-si-cut" value="${data?.siCut || ''}" readonly style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;text-align:center;background:#f1f5f9;" />
+        </td>
+        <td style="padding:8px 14px;text-align:center;">
+            <button class="btn btn-sm btn-clear" onclick="removeStuffingRow(this)" style="padding:2px 8px;">×</button>
+        </td>
+    `;
+    return row;
+}
+
+function saveStuffingData() {
+    const rows = document.querySelectorAll('#stuffing-table-body tr');
+    db.stuffing = [];
+    rows.forEach((row, i) => {
+        const vessel = row.querySelector('.stuffing-vessel').value;
+        const departure = row.querySelector('.stuffing-departure').value;
+        const eta = row.querySelector('.stuffing-eta').value;
+        const gateOpen = row.querySelector('.stuffing-gate-open').value;
+        const gateCut = row.querySelector('.stuffing-gate-cut').value;
+        const sbCut = row.querySelector('.stuffing-sb-cut').value;
+        const siCut = row.querySelector('.stuffing-si-cut').value;
+        db.stuffing.push({ vessel, departure, eta, gateOpen, gateCut, sbCut, siCut });
+    });
+    saveDB();
+}
+
+function onStuffingInput() {
+    saveStuffingData();
+}
+
+function onOffsetChange() {
+    document.querySelectorAll('#stuffing-table-body .stuffing-departure').forEach(depInput => {
+        if (depInput.value) {
+            updateStuffingDates(depInput);
+        }
+    });
+    saveStuffingData();
+}
+
+function removeStuffingRow(btn) {
+    const row = btn.closest('tr');
+    const tbody = document.getElementById('stuffing-table-body');
+    if (tbody.children.length > 1) {
+        row.remove();
+        tbody.querySelectorAll('tr').forEach((tr, i) => {
+            tr.querySelector('td:first-child').textContent = i + 1;
+        });
+        saveStuffingData();
+    } else {
+        alert('You must keep at least one row.');
+    }
+}
+
+function initStuffingPlanning() {
+    const tbody = document.getElementById('stuffing-table-body');
+    tbody.innerHTML = '';
+    const data = db.stuffing || [];
+    if (data.length === 0) {
+        addStuffingRow();
+    } else {
+        data.forEach((item, idx) => {
+            const row = createStuffingRow(idx, item);
+            tbody.appendChild(row);
+        });
+    }
+    document.querySelectorAll('#stuffing-table-body .stuffing-departure').forEach(depInput => {
+        if (depInput.value) {
+            updateStuffingDates(depInput);
+        }
+    });
+}
+
+// ==================== USA TRUCKING MODULE ====================
+if (!db.truckingShipments) db.truckingShipments = [];
+
+function formatUSD(n) {
+    return '$ ' + Number(n || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function onTruckInput() {
+    calcTruckingTotals();
+    document.querySelectorAll('#truck-origin, #truck-dest').forEach(el => {
+        el.value = el.value.toUpperCase();
+    });
+}
+
+function calcTruckingTotals() {
+    const miles = parseFloat(document.getElementById('truck-miles').value) || 0;
+    const distance = miles * 2;
+    document.getElementById('truck-distance').value = distance.toFixed(2);
+    const perMile = parseFloat(document.getElementById('truck-per-mile').value) || 0;
+    const min = parseFloat(document.getElementById('truck-minimum').value) || 0;
+    const chassisDays = parseInt(document.getElementById('truck-chassis-days').value) || 2;
+    const inventory = parseInt(document.getElementById('truck-inventory').value) || 1;
+    let regTotal = Math.max(perMile * distance, min);
+    const chassisCost = 45 * chassisDays * inventory;
+    regTotal += chassisCost;
+    document.getElementById('truck-regular-total').textContent = formatUSD(regTotal);
+    let addTotal = 0;
+    document.querySelectorAll('#truck-additional-container .truck-additional-row').forEach(row => {
+        const amt = parseFloat(row.querySelector('.charge-amt').value) || 0;
+        addTotal += amt;
+    });
+    document.getElementById('truck-additional-total').textContent = formatUSD(addTotal);
+    const grand = regTotal + addTotal;
+    document.getElementById('truck-grand-total').textContent = formatUSD(grand);
+    return { regTotal, addTotal, grand };
+}
+
+function buildTruckingAdditionalRows(charges) {
+    const container = document.getElementById('truck-additional-container');
+    container.innerHTML = '';
+    const defaultCharges = charges || [
+        { name: 'STORAGE', amount: 0 },
+        { name: 'PRE PULL', amount: 0 },
+        { name: 'DETENTION', amount: 0 },
+        { name: 'STOP OFF CHARGES', amount: 0 },
+        { name: 'CHASSIS SPLIT', amount: 0 },
+        { name: 'OVER WEIGHT CHARGES', amount: 0 },
+        { name: 'TRIAXLE CHASSIS', amount: 0 }
+    ];
+    defaultCharges.forEach((charge, idx) => {
+        addTruckingAdditionalRow(charge.name, charge.amount, idx);
+    });
+    enableTruckingDragDrop();
+}
+
+function addTruckingAdditionalRow(name = '', amount = 0, index = null) {
+    const container = document.getElementById('truck-additional-container');
+    const row = document.createElement('div');
+    row.className = 'truck-additional-row';
+    row.draggable = true;
+    row.dataset.index = index !== null ? index : container.children.length;
+    row.innerHTML = `
+        <span class="charge-name">${name || 'NEW CHARGE'}</span>
+        <input type="text" class="charge-name-input" value="${name}" placeholder="Charge Name" style="width:120px;font-weight:600;text-transform:uppercase;" oninput="this.value = this.value.toUpperCase(); onTruckInput();">
+        <input type="number" class="charge-amt" value="${amount}" step="0.01" placeholder="0.00" oninput="onTruckInput()">
+        <button class="charge-del" onclick="removeTruckingAdditionalRow(this)">×</button>
+    `;
+    container.appendChild(row);
+    enableTruckingDragDrop();
+    onTruckInput();
+}
+
+function removeTruckingAdditionalRow(btn) {
+    const row = btn.closest('.truck-additional-row');
+    if (document.querySelectorAll('#truck-additional-container .truck-additional-row').length > 1) {
+        row.remove();
+        onTruckInput();
+    } else {
+        alert('You must keep at least one additional charge row.');
+    }
+}
+
+let truckDragData = null;
+
+function enableTruckingDragDrop() {
+    document.querySelectorAll('#truck-additional-container .truck-additional-row').forEach(row => {
+        row.addEventListener('dragstart', function(e) {
+            truckDragData = this;
+            this.classList.add('dragging');
+            e.dataTransfer.effectAllowed = 'move';
+        });
+        row.addEventListener('dragend', function(e) {
+            this.classList.remove('dragging');
+            document.querySelectorAll('#truck-additional-container .truck-additional-row').forEach(r => r.classList.remove(
+            'drag-over'));
+        });
+        row.addEventListener('dragover', function(e) {
+            e.preventDefault();
+            this.classList.add('drag-over');
+        });
+        row.addEventListener('dragleave', function(e) {
+            this.classList.remove('drag-over');
+        });
+        row.addEventListener('drop', function(e) {
+            e.preventDefault();
+            this.classList.remove('drag-over');
+            if (truckDragData && truckDragData !== this) {
+                const container = document.getElementById('truck-additional-container');
+                const children = Array.from(container.children);
+                const srcIdx = children.indexOf(truckDragData);
+                const tgtIdx = children.indexOf(this);
+                if (srcIdx < tgtIdx) {
+                    container.insertBefore(truckDragData, this.nextSibling);
+                } else {
+                    container.insertBefore(truckDragData, this);
+                }
+                truckDragData = null;
+                onTruckInput();
+            }
+        });
+    });
+}
+
+function getTruckingFormData() {
+    const data = {
+        origin: document.getElementById('truck-origin').value.trim().toUpperCase(),
+        destination: document.getElementById('truck-dest').value.trim().toUpperCase(),
+        inventory: parseInt(document.getElementById('truck-inventory').value) || 1,
+        miles: parseFloat(document.getElementById('truck-miles').value) || 0,
+        perMile: parseFloat(document.getElementById('truck-per-mile').value) || 0,
+        minimum: parseFloat(document.getElementById('truck-minimum').value) || 0,
+        chassisDays: parseInt(document.getElementById('truck-chassis-days').value) || 2,
+        additional: []
+    };
+    document.querySelectorAll('#truck-additional-container .truck-additional-row').forEach(row => {
+        const name = row.querySelector('.charge-name-input').value.trim().toUpperCase();
+        const amount = parseFloat(row.querySelector('.charge-amt').value) || 0;
+        data.additional.push({ name, amount });
+    });
+    const totals = calcTruckingTotals();
+    data.regularTotal = totals.regTotal;
+    data.additionalTotal = totals.addTotal;
+    data.grandTotal = totals.grand;
+    data.timestamp = new Date().toISOString();
+    data.lastModified = data.timestamp;
+    return data;
+}
+
+function loadTruckingForm(data) {
+    document.getElementById('truck-origin').value = data.origin || '';
+    document.getElementById('truck-dest').value = data.destination || '';
+    document.getElementById('truck-inventory').value = data.inventory || 1;
+    document.getElementById('truck-miles').value = data.miles || 0;
+    document.getElementById('truck-per-mile').value = data.perMile || 0;
+    document.getElementById('truck-minimum').value = data.minimum || 0;
+    document.getElementById('truck-chassis-days').value = data.chassisDays || 2;
+    buildTruckingAdditionalRows(data.additional || []);
+    onTruckInput();
+}
+
+function saveTruckingShipment() {
+    const data = getTruckingFormData();
+    if (!data.origin || !data.destination) {
+        alert('Please fill Origin and Destination.');
+        return;
+    }
+    const editId = document.getElementById('trucking-edit-id').value;
+    if (editId) {
+        const idx = db.truckingShipments.findIndex(s => s.id === editId);
+        if (idx !== -1) {
+            data.id = editId;
+            data.createdAt = db.truckingShipments[idx].createdAt || data.timestamp;
+            db.truckingShipments[idx] = data;
+            document.getElementById('trucking-edit-id').value = '';
+        } else {
+            alert('Record not found.');
+            return;
+        }
+    } else {
+        data.id = 'TR-' + Date.now().toString(36).toUpperCase();
+        data.createdAt = data.timestamp;
+        data.status = 'Active';
+        db.truckingShipments.push(data);
+    }
+    saveDB();
+    renderTruckingList();
+    alert('Trucking shipment saved!');
+    clearTruckingForm();
+    autoBackup();
+}
+
+function clearTruckingForm() {
+    document.getElementById('truck-origin').value = '';
+    document.getElementById('truck-dest').value = '';
+    document.getElementById('truck-inventory').value = 1;
+    document.getElementById('truck-miles').value = '';
+    document.getElementById('truck-per-mile').value = '';
+    document.getElementById('truck-minimum').value = '';
+    document.getElementById('truck-chassis-days').value = 2;
+    document.getElementById('trucking-edit-id').value = '';
+    buildTruckingAdditionalRows();
+    onTruckInput();
+}
+
+function renderTruckingList() {
+    const search = (document.getElementById('truck-search').value || '').toLowerCase();
+    const statusFilter = document.getElementById('truck-status-filter').value;
+    const sort = document.getElementById('truck-sort').value;
+    const perPage = parseInt(document.getElementById('truck-per-page').value) || 10;
+    let shipments = db.truckingShipments || [];
+    shipments = shipments.filter(s => {
+        const text = `${s.origin} ${s.destination}`.toLowerCase();
+        if (search && !text.includes(search)) return false;
+        if (statusFilter && s.status !== statusFilter) return false;
+        return true;
+    });
+    shipments.sort((a, b) => {
+        switch (sort) {
+            case 'date-desc':
+                return new Date(b.timestamp) - new Date(a.timestamp);
+            case 'date-asc':
+                return new Date(a.timestamp) - new Date(b.timestamp);
+            case 'origin':
+                return (a.origin || '').localeCompare(b.origin || '');
+            default:
+                return 0;
+        }
+    });
+    const total = shipments.length;
+    const totalPages = Math.ceil(total / perPage) || 1;
+    let page = parseInt(sessionStorage.getItem('truckPage') || '1');
+    if (page < 1) page = 1;
+    if (page > totalPages) page = totalPages;
+    sessionStorage.setItem('truckPage', String(page));
+    const start = (page - 1) * perPage;
+    const pageData = shipments.slice(start, start + perPage);
+    const list = document.getElementById('trucking-list');
+    if (total === 0) {
+        list.innerHTML = '<p style="color:var(--text-light);padding:20px;text-align:center;">No trucking shipments found.</p>';
+        document.getElementById('trucking-pagination').innerHTML = '';
+        return;
+    }
+    list.innerHTML = pageData.map((s, i) => {
+        const realIdx = db.truckingShipments.indexOf(s);
+        const statusClass = s.status === 'Active' ? 'status-active' : s.status === 'Completed' ? 'status-expiring' :
+            'status-expired';
+        return `<div class="truck-shipment-card">
+            <div class="info">
+                <h4>${s.origin} → ${s.destination}</h4>
+                <p>Inventory: ${s.inventory} | Miles: ${s.miles} | Grand Total: ${formatUSD(s.grandTotal)}</p>
+                <p>Status: <span class="status-badge ${statusClass}">${s.status}</span> | Saved: ${new Date(s.timestamp).toLocaleDateString('en-IN')}</p>
+            </div>
+            <div class="actions">
+                <button class="btn btn-sm btn-preview" onclick="previewTruckingShipment(${realIdx})">👁</button>
+                <button class="btn btn-sm btn-preview" onclick="editTruckingShipment(${realIdx})">✏️</button>
+                <button class="btn btn-sm btn-duplicate" onclick="duplicateTruckingShipment(${realIdx})">📋</button>
+                <button class="btn btn-sm btn-clear" onclick="deleteTruckingShipment(${realIdx})">×</button>
+            </div>
+        </div>`;
+    }).join('');
+    const pag = document.getElementById('trucking-pagination');
+    if (totalPages <= 1) { pag.innerHTML = ''; return; }
+    let pagHtml = `<button class="page-btn" onclick="changeTruckingPage(${page - 1})" ${page === 1 ? 'disabled' : ''}>‹ Prev</button>`;
+    pagHtml += `<span class="page-info">Page ${page} of ${totalPages} (${total} records)</span>`;
+    pagHtml += `<button class="page-btn" onclick="changeTruckingPage(${page + 1})" ${page === totalPages ? 'disabled' : ''}>Next ›</button>`;
+    pag.innerHTML = pagHtml;
+}
+
+function changeTruckingPage(page) {
+    sessionStorage.setItem('truckPage', String(page));
+    renderTruckingList();
+}
+
+function clearTruckingFilters() {
+    document.getElementById('truck-search').value = '';
+    document.getElementById('truck-status-filter').value = '';
+    document.getElementById('truck-sort').value = 'date-desc';
+    document.getElementById('truck-per-page').value = '10';
+    sessionStorage.setItem('truckPage', '1');
+    renderTruckingList();
+}
+
+function editTruckingShipment(idx) {
+    const s = db.truckingShipments[idx];
+    if (!s) return alert('Shipment not found.');
+    loadTruckingForm(s);
+    document.getElementById('trucking-edit-id').value = s.id;
+    document.getElementById('calc-us-trucking').scrollIntoView({ behavior: 'smooth' });
+}
+
+function duplicateTruckingShipment(idx) {
+    const s = db.truckingShipments[idx];
+    if (!s) return alert('Shipment not found.');
+    const copy = JSON.parse(JSON.stringify(s));
+    copy.id = 'TR-' + Date.now().toString(36).toUpperCase();
+    copy.timestamp = new Date().toISOString();
+    copy.lastModified = copy.timestamp;
+    copy.status = 'Active';
+    delete copy._id;
+    db.truckingShipments.push(copy);
+    saveDB();
+    renderTruckingList();
+    alert('Shipment duplicated!');
+    autoBackup();
+}
+
+function deleteTruckingShipment(idx) {
+    const s = db.truckingShipments[idx];
+    if (!s) return alert('Shipment not found.');
+    if (confirm(`Delete trucking shipment "${s.origin} → ${s.destination}"?`)) {
+        db.truckingShipments.splice(idx, 1);
+        saveDB();
+        renderTruckingList();
+        autoBackup();
+    }
+}
+
+function duplicateTruckingCurrent() {
+    const data = getTruckingFormData();
+    if (!data.origin || !data.destination) {
+        alert('Please fill Origin and Destination.');
+        return;
+    }
+    data.id = 'TR-' + Date.now().toString(36).toUpperCase();
+    data.timestamp = new Date().toISOString();
+    data.lastModified = data.timestamp;
+    data.status = 'Active';
+    db.truckingShipments.push(data);
+    saveDB();
+    renderTruckingList();
+    alert('Current form duplicated and saved!');
+    autoBackup();
+}
+
+function previewTruckingShipment(idx = null) {
+    let data;
+    if (idx !== null) {
+        data = db.truckingShipments[idx];
+        if (!data) return alert('Shipment not found.');
+    } else {
+        data = getTruckingFormData();
+        if (!data.origin || !data.destination) {
+            alert('Please fill Origin and Destination.');
+            return;
+        }
+    }
+    const html = buildTruckingPreviewHTML(data);
+    document.getElementById('modal-title').textContent = 'Trucking Shipment Preview';
+    document.getElementById('previewBody').innerHTML = html;
+    openModal('previewModal');
+}
+
+function buildTruckingPreviewHTML(data) {
+    const addRows = data.additional.map(a =>
+        `<tr><td>${a.name}</td><td style="text-align:right;">${formatUSD(a.amount)}</td></tr>`).join('');
+    return `
+        <div style="background:#ffffff;color:#1a1a1a;font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:10px;">
+            <h3 style="color:var(--primary);border-bottom:2px solid var(--primary);padding-bottom:6px;">🚛 US Trucking Shipment</h3>
+            <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+                <tr><td style="padding:4px 8px;font-weight:bold;">Origin</td><td>${data.origin}</td><td style="padding:4px 8px;font-weight:bold;">Destination</td><td>${data.destination}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;">Inventory</td><td>${data.inventory}</td><td style="padding:4px 8px;font-weight:bold;">Miles</td><td>${data.miles}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;">Per Mile</td><td>${formatUSD(data.perMile)}</td><td style="padding:4px 8px;font-weight:bold;">Minimum</td><td>${formatUSD(data.minimum)}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;">Chassis Days</td><td>${data.chassisDays}</td><td style="padding:4px 8px;font-weight:bold;">Chassis Cost</td><td>${formatUSD(45 * data.chassisDays * data.inventory)}</td></tr>
+            </table>
+            <h4 style="color:var(--primary);margin-top:12px;">Regular Total: ${formatUSD(data.regularTotal)}</h4>
+            <h4 style="color:var(--accent);margin-top:8px;">Additional Services</h4>
+            <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+                <thead><tr style="background:#1e3a8a;color:white;"><th style="padding:4px 8px;text-align:left;">Service</th><th style="padding:4px 8px;text-align:right;">Amount</th></tr></thead>
+                <tbody>${addRows || '<tr><td colspan="2" style="padding:4px 8px;text-align:center;color:var(--text-light);">No additional services</td></tr>'}</tbody>
+                <tfoot><tr style="background:#f1f5f9;"><td style="padding:4px 8px;font-weight:bold;">Additional Total</td><td style="padding:4px 8px;text-align:right;font-weight:bold;">${formatUSD(data.additionalTotal)}</td></tr></tfoot>
+            </table>
+            <div style="margin-top:12px;background:#10b981;color:white;padding:8px;text-align:center;font-weight:bold;border-radius:4px;">
+                GRAND TOTAL: ${formatUSD(data.grandTotal)}
+            </div>
+            <p style="margin-top:12px;font-size:0.7rem;color:var(--text-light);text-align:center;">Generated on ${new Date().toLocaleString('en-IN')}</p>
+        </div>
+    `;
+}
+
+function downloadTruckingPDF(idx = null) {
+    let data;
+    if (idx !== null) {
+        data = db.truckingShipments[idx];
+        if (!data) return alert('Shipment not found.');
+    } else {
+        data = getTruckingFormData();
+        if (!data.origin || !data.destination) {
+            alert('Please fill Origin and Destination.');
+            return;
+        }
+    }
+    const html = buildTruckingPreviewHTML(data);
+    const renderArea = document.getElementById('pdf-render-area');
+    renderArea.innerHTML = html;
+    renderArea.style.cssText = 'position:fixed;left:0;top:0;width:800px;background:white;z-index:9999;opacity:1;padding:10px;';
+    setTimeout(() => {
+        html2canvas(renderArea, { scale: 1, useCORS: true, backgroundColor: '#ffffff' })
+            .then(canvas => {
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = pdf.internal.pageSize.getHeight();
+                const margin = 10;
+                const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                let imgWidth = pdfWidth - 2 * margin;
+                let imgHeight = (canvas.height * imgWidth) / canvas.width;
+                const maxHeight = pdfHeight - 2 * margin;
+                if (imgHeight > maxHeight) { const scale = maxHeight / imgHeight;
+                    imgWidth *= scale;
+                    imgHeight *= scale; }
+                const x = (pdfWidth - imgWidth) / 2;
+                const y = (pdfHeight - imgHeight) / 2;
+                pdf.addImage(imgData, 'JPEG', x, y, imgWidth, imgHeight);
+                pdf.save(`Trucking_${data.origin}_${data.destination}.pdf`);
+                renderArea.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:white;z-index:-1;';
+                renderArea.innerHTML = '';
+            }).catch(err => {
+                console.error(err);
+                alert('PDF generation failed.');
+                renderArea.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:white;z-index:-1;';
+                renderArea.innerHTML = '';
+            });
+    }, 500);
+}
+
+// ==================== OOG & OT (OVER DIMENSION / OVERWEIGHT) ====================
+const oogContainerData = [
+    { type: "20 GP", internal: { l: 5.898, w: 2.352, h: 2.393 }, door: { w: 2.340, h: 2.280 }, maxWeight: 28200 },
+    { type: "40 GP", internal: { l: 12.032, w: 2.352, h: 2.393 }, door: { w: 2.340, h: 2.280 }, maxWeight: 26580 },
+    { type: "40 HC", internal: { l: 12.032, w: 2.352, h: 2.698 }, door: { w: 2.340, h: 2.580 }, maxWeight: 26480 },
+    { type: "20 RF", internal: { l: 5.444, w: 2.286, h: 2.275 }, door: { w: 2.280, h: 2.220 }, maxWeight: 27700 },
+    { type: "40 RF", internal: { l: 11.572, w: 2.286, h: 2.275 }, door: { w: 2.280, h: 2.220 }, maxWeight: 26500 },
+    { type: "20 TK", internal: { l: 5.898, w: 2.352, h: 2.393 }, door: { w: 2.340, h: 2.280 }, maxWeight: 24000 },
+    { type: "40 TK", internal: { l: 12.032, w: 2.352, h: 2.393 }, door: { w: 2.340, h: 2.280 }, maxWeight: 26000 }
+];
+
+function populateOOGContainerDropdown() {
+    console.log("▶️ populateOOGContainerDropdown started");
+    const sel = document.getElementById('oog-container');
+    if (!sel) {
+        console.error("❌ Element #oog-container not found in HTML!");
+        return;
+    }
+    let containerList = [];
+    if (db.containerDimensions && db.containerDimensions.length > 0) {
+        console.log("✅ Found db.containerDimensions with", db.containerDimensions.length, "items");
+        containerList = db.containerDimensions.map(c => c.type);
+        console.log("   Container types:", containerList);
+    } else {
+        console.warn("⚠️ db.containerDimensions is empty or missing. Using fallback list.");
+        containerList = ["20 GP", "40 GP", "40 HC", "20 RF", "40 RF", "20 TK", "40 TK"];
+    }
+    sel.innerHTML = '<option value="">Select Container</option>' +
+        containerList.map(t => `<option value="${t}">${t}</option>`).join('');
+    console.log("✅ Dropdown populated with", containerList.length, "options");
+}
+
+const doorDimMap = {
+    "20 GP": { w: 2.340, h: 2.280 },
+    "40 GP": { w: 2.340, h: 2.280 },
+    "40 HC": { w: 2.340, h: 2.580 },
+    "20 RF": { w: 2.280, h: 2.220 },
+    "40 RF": { w: 2.280, h: 2.220 },
+    "20 TK": { w: 2.340, h: 2.280 },
+    "40 TK": { w: 2.340, h: 2.280 }
+};
+
+function parseDim(str) {
+    if (!str) return 0;
+    return parseFloat(String(str).replace(/[^0-9.]/g, '')) || 0;
+}
+
+function parseWeight(str) {
+    if (!str) return 0;
+    return parseFloat(String(str).replace(/[^0-9.]/g, '')) || 0;
+}
+
+function calcOOG() {
+    const containerType = document.getElementById('oog-container').value;
+    const unit = document.getElementById('oog-unit').value;
+    const cargoL = parseFloat(document.getElementById('oog-length').value) || 0;
+    const cargoW = parseFloat(document.getElementById('oog-width').value) || 0;
+    const cargoH = parseFloat(document.getElementById('oog-height').value) || 0;
+    const cargoWeight = parseFloat(document.getElementById('oog-weight').value) || 0;
+    let factor = 1;
+    if (unit === 'cm') factor = 0.01;
+    else if (unit === 'inch') factor = 0.0254;
+    const cargoLm = cargoL * factor;
+    const cargoWm = cargoW * factor;
+    const cargoHm = cargoH * factor;
+    let containerData = null;
+    if (db.containerDimensions && db.containerDimensions.length) {
+        containerData = db.containerDimensions.find(c => c.type === containerType);
+    }
+    if (!containerData) {
+        const fallback = oogContainerData.find(c => c.type === containerType);
+        if (fallback) {
+            containerData = {
+                type: fallback.type,
+                length: fallback.internal.l,
+                width: fallback.internal.w,
+                height: fallback.internal.h,
+                maxWeight: fallback.maxWeight
+            };
+        }
+    }
+    const resultArea = document.getElementById('oog-result-area');
+    if (!containerType || !containerData) {
+        resultArea.innerHTML =
+            '<div class="modern-section" style="padding:20px;text-align:center;color:var(--text-light);">⚠️ Please select a container type.</div>';
+        return;
+    }
+    const intL = parseDim(containerData.length);
+    const intW = parseDim(containerData.width);
+    const intH = parseDim(containerData.height);
+    const maxWt = parseWeight(containerData.maxWeight);
+    const door = doorDimMap[containerType] || { w: 0, h: 0 };
+    const hasDoorData = door.w > 0 && door.h > 0;
+    const intL_ok = cargoLm <= intL;
+    const intW_ok = cargoWm <= intW;
+    const intH_ok = cargoHm <= intH;
+    const doorW_ok = hasDoorData ? (cargoWm <= door.w) : true;
+    const doorH_ok = hasDoorData ? (cargoHm <= door.h) : true;
+    const isOOG = !intL_ok || !intW_ok || !intH_ok || !doorW_ok || !doorH_ok;
+    const isOT = cargoWeight > maxWt;
+
+    function formatDimUnit(meters) {
+        let val = meters;
+        let unitLabel = 'm';
+        if (unit === 'cm') { val = meters * 100;
+            unitLabel = 'cm'; } else if (unit === 'inch') { val = meters / 0.0254;
+            unitLabel = 'in'; }
+        return val.toFixed(2) + ' ' + unitLabel;
+    }
+    const limitL = formatDimUnit(intL);
+    const limitW_int = formatDimUnit(intW);
+    const limitH_int = formatDimUnit(intH);
+    const cL = formatDimUnit(cargoLm);
+    const cW = formatDimUnit(cargoWm);
+    const cH = formatDimUnit(cargoHm);
+    let statusText = '',
+        colorClass = '';
+    if (isOOG && isOT) { statusText = '❌ OVER DIMENSION & OVERWEIGHT';
+        colorClass = 'modern-footer-red'; } else if (isOOG) { statusText = '⚠️ OVER DIMENSION (OOG)';
+        colorClass = 'modern-footer-orange'; } else if (isOT) { statusText = '⚠️ OVERWEIGHT (OT)';
+        colorClass = 'modern-footer-orange'; } else { statusText = '✅ STANDARD FIT – NO OOG / OT';
+        colorClass = 'modern-footer-green'; }
+    let html = `
+    <div class="modern-section">
+        <div class="modern-section-title"><span>📦 Container & Cargo Breakdown</span></div>
+        <table class="modern-table">
+            <thead><tr><th>Component</th><th>Details / Limit</th><th>Your Cargo</th></tr></thead>
+            <tbody>
+                <tr><td><span class="badge badge-blue">CTR</span> Container</td><td>${containerType}</td><td class="text-muted">Internal: ${limitL} x ${limitW_int} x ${limitH_int}</td></tr>
+                <tr><td><span class="badge badge-yellow">DOOR</span> Door</td><td>${hasDoorData ? formatDimUnit(door.w) + ' x ' + formatDimUnit(door.h) : 'N/A'}</td><td class="text-muted">Max Payload: ${maxWt.toLocaleString()} KGS</td></tr>
+                <tr><td><span class="badge badge-purple">LEN</span> Length</td><td>${limitL}</td><td>${cL}</td></tr>
+                <tr><td><span class="badge badge-purple">WID</span> Width</td><td>${limitW_int}</td><td>${cW}</td></tr>
+                <tr><td><span class="badge badge-purple">HGT</span> Height</td><td>${limitH_int}</td><td>${cH}</td></tr>
+                <tr><td><span class="badge badge-red">WGT</span> Weight</td><td>${maxWt.toLocaleString()} KGS</td><td>${cargoWeight.toLocaleString()} KGS</td></tr>
+            </tbody>
+        </table>
+    </div>
+    <div class="modern-section">
+        <div class="modern-section-title"><span>📊 OOG / OT Analysis</span></div>
+        <table class="modern-table">
+            <thead><tr><th>Check</th><th>Container Limit</th><th>Your Cargo</th><th>Status</th></tr></thead>
+            <tbody>
+                <tr><td>Length</td><td>${limitL}</td><td>${cL}</td><td><span class="badge ${intL_ok ? 'badge-green' : 'badge-red'}">${intL_ok ? '✅ Fit' : '❌ Exceed'}</span></td></tr>
+                <tr><td>Width (Int)</td><td>${limitW_int}</td><td>${cW}</td><td><span class="badge ${intW_ok ? 'badge-green' : 'badge-red'}">${intW_ok ? '✅ Fit' : '❌ Exceed'}</span></td></tr>
+                <tr><td>Height (Int)</td><td>${limitH_int}</td><td>${cH}</td><td><span class="badge ${intH_ok ? 'badge-green' : 'badge-red'}">${intH_ok ? '✅ Fit' : '❌ Exceed'}</span></td></tr>
+                <tr><td>Weight</td><td>${maxWt.toLocaleString()} KGS</td><td>${cargoWeight.toLocaleString()} KGS</td><td><span class="badge ${!isOT ? 'badge-green' : 'badge-red'}">${!isOT ? '✅ Fit' : '❌ Overweight'}</span></td></tr>
+            </tbody>
+            <tfoot><tr class="${colorClass}"><td colspan="4" class="text-center">${statusText}</td></tr></tfoot>
+        </table>
+    </div>
+    `;
+    resultArea.innerHTML = html;
+}
+
+function migrateOOGContainers() {
+    if (!db.containerDimensions) {
+        db.containerDimensions = JSON.parse(JSON.stringify(defaultContainerDimensions));
+    }
+    db.containerDimensions.forEach(c => {
+        if (!c.tareWeight) c.tareWeight = "0 kg";
+        if (!c.unit) {
+            let match = String(c.length).match(/[a-zA-Z]+$/);
+            c.unit = match ? match[0] : 'm';
+            c.length = parseDim(c.length);
+            c.width = parseDim(c.width);
+            c.height = parseDim(c.height);
+            c.maxWeight = parseWeight(c.maxWeight);
+            c.cbm = parseDim(c.cbm);
+        }
+    });
+    saveDB();
+}
+
+function renderOOGContainerTable() {
+    const tbody = document.getElementById('oog-container-tbody');
+    if (!tbody) return;
+    migrateOOGContainers();
+    tbody.innerHTML = db.containerDimensions.map((c, i) => {
+        const unitOpts = ['m', 'cm', 'inch'].map(u =>
+            `<option value="${u}" ${c.unit === u ? 'selected' : ''}>${u}</option>`
+        ).join('');
+        return `<tr data-index="${i}">
+            <td style="text-align:center;font-weight:600;">${i+1}</td>
+            <td><input type="text" class="oog-edit-type" value="${c.type}" placeholder="e.g. 45 GP"></td>
+            <td><input type="number" step="0.001" class="oog-edit-length" value="${c.length}" placeholder="0.00"></td>
+            <td><input type="number" step="0.001" class="oog-edit-width" value="${c.width}" placeholder="0.00"></td>
+            <td><input type="number" step="0.001" class="oog-edit-height" value="${c.height}" placeholder="0.00"></td>
+            <td><input type="text" class="oog-edit-tare" value="${c.tareWeight}" placeholder="e.g. 2,280 kg"></td>
+            <td><input type="text" class="oog-edit-maxwt" value="${c.maxWeight}" placeholder="e.g. 28,200 kg"></td>
+            <td><input type="number" step="0.01" class="oog-edit-cbm" value="${c.cbm}" placeholder="0.00"></td>
+            <td><select class="oog-edit-unit">${unitOpts}</select></td>
+            <td style="text-align:center;"><button class="btn btn-sm btn-clear" onclick="deleteOOGContainerRow(${i})">×</button></td>
+        </tr>`;
+    }).join('');
+}
+
+function addOOGContainerRow() {
+    const tbody = document.getElementById('oog-container-tbody');
+    const newRow = document.createElement('tr');
+    const newIndex = tbody.children.length;
+    newRow.innerHTML = `
+        <td style="text-align:center;font-weight:600;">${newIndex+1}</td>
+        <td><input type="text" class="oog-edit-type" value="NEW" placeholder="e.g. 45 GP"></td>
+        <td><input type="number" step="0.001" class="oog-edit-length" value="0" placeholder="0.00"></td>
+        <td><input type="number" step="0.001" class="oog-edit-width" value="0" placeholder="0.00"></td>
+        <td><input type="number" step="0.001" class="oog-edit-height" value="0" placeholder="0.00"></td>
+        <td><input type="text" class="oog-edit-tare" value="0 kg" placeholder="e.g. 2,280 kg"></td>
+        <td><input type="text" class="oog-edit-maxwt" value="0 kg" placeholder="e.g. 28,200 kg"></td>
+        <td><input type="number" step="0.01" class="oog-edit-cbm" value="0" placeholder="0.00"></td>
+        <td><select class="oog-edit-unit"><option value="m">m</option><option value="cm">cm</option><option value="inch">inch</option></select></td>
+        <td style="text-align:center;"><button class="btn btn-sm btn-clear" onclick="deleteOOGContainerRow(${newIndex})">×</button></td>
+    `;
+    tbody.appendChild(newRow);
+}
+
+function deleteOOGContainerRow(index) {
+    if (!confirm('Delete this container dimension?')) return;
+    const rows = document.querySelectorAll('#oog-container-tbody tr');
+    if (rows[index]) rows[index].remove();
+    document.querySelectorAll('#oog-container-tbody tr').forEach((row, i) => {
+        row.querySelector('td:first-child').textContent = i + 1;
+    });
+}
+
+function saveOOGContainers() {
+    const newData = [];
+    document.querySelectorAll('#oog-container-tbody tr').forEach(row => {
+        const type = row.querySelector('.oog-edit-type').value.trim();
+        const length = parseFloat(row.querySelector('.oog-edit-length').value) || 0;
+        const width = parseFloat(row.querySelector('.oog-edit-width').value) || 0;
+        const height = parseFloat(row.querySelector('.oog-edit-height').value) || 0;
+        const tareWeight = row.querySelector('.oog-edit-tare').value.trim() || '0 kg';
+        const maxWeight = row.querySelector('.oog-edit-maxwt').value.trim() || '0 kg';
+        const cbm = parseFloat(row.querySelector('.oog-edit-cbm').value) || 0;
+        const unit = row.querySelector('.oog-edit-unit').value;
+        if (type) {
+            newData.push({ type, length, width, height, tareWeight, maxWeight, cbm, unit });
+        }
+    });
+    if (newData.length === 0) {
+        alert('At least one valid container must exist.');
+        return;
+    }
+    db.containerDimensions = newData;
+    saveDB();
+    populateOOGContainerDropdown();
+    renderOOGContainerTable();
+    calcOOG();
+    alert('✅ Container dimensions saved successfully!');
+    autoBackup();
+}
+
+// ==================== DETENTION & DEMURRAGE (5 SLAB PROGRESSIVE) ====================
+if (!db.detentionLots) db.detentionLots = [];
+if (!db.detentionRecords) db.detentionRecords = [];
+
+const defaultDetentionSlabs = [
+    { from: 1, to: 5, rate: 10 },
+    { from: 6, to: 10, rate: 30 },
+    { from: 11, to: 20, rate: 50 },
+    { from: 21, to: 30, rate: 70 },
+    { from: 31, to: 999, rate: 100 }
+];
+
+const defaultDetentionLots = [
+    { id: 'lot-1', name: '20 GP Standard', freeDays: 5, slabs: JSON.parse(JSON.stringify(defaultDetentionSlabs)) },
+    { id: 'lot-2', name: '40 GP Standard', freeDays: 5, slabs: JSON.parse(JSON.stringify(defaultDetentionSlabs)) },
+    { id: 'lot-3', name: '40 HC Standard', freeDays: 5, slabs: JSON.parse(JSON.stringify(defaultDetentionSlabs)) },
+    { id: 'lot-4', name: 'Reefer 20 RF', freeDays: 3, slabs: JSON.parse(JSON.stringify(defaultDetentionSlabs)) },
+    { id: 'lot-5', name: 'Reefer 40 RF', freeDays: 3, slabs: JSON.parse(JSON.stringify(defaultDetentionSlabs)) }
+];
+
+function renderDetentionSlabs(slabs) {
+    const container = document.getElementById('det-slabs-rows');
+    if (!container) return;
+    let displaySlabs = slabs || defaultDetentionSlabs;
+    if (!displaySlabs || displaySlabs.length !== 5) {
+        displaySlabs = JSON.parse(JSON.stringify(defaultDetentionSlabs));
+    }
+    container.innerHTML = displaySlabs.map((s, i) => `
+        <div style="display:grid;grid-template-columns:80px 80px 1fr 1fr;gap:6px;margin-bottom:4px;align-items:center;">
+            <span style="font-weight:600;font-size:0.8rem;color:var(--text);padding:4px 8px;">Slab ${i+1}</span>
+            <input type="number" class="det-slab-from" value="${s.from}" min="1" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;width:100%;" oninput="calcDetention()" />
+            <input type="number" class="det-slab-to" value="${s.to}" min="1" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;width:100%;" oninput="calcDetention()" />
+            <input type="number" class="det-slab-rate" value="${s.rate}" step="0.01" style="padding:4px 6px;border:1px solid var(--border);border-radius:4px;width:100%;" oninput="calcDetention()" />
+        </div>
+    `).join('');
+}
+
+function populateDetentionLotDropdown() {
+    const sel = document.getElementById('det-lot');
+    if (!sel) return;
+    if (!db.detentionLots || db.detentionLots.length === 0) {
+        db.detentionLots = JSON.parse(JSON.stringify(defaultDetentionLots));
+        saveDB();
+    }
+    sel.innerHTML = '<option value="">Select a Lot or Custom</option>' +
+        db.detentionLots.map(l => `<option value="${l.id}">${l.name} (${l.freeDays}d free)</option>`).join('');
+}
+
+function onDetLotChange() {
+    const sel = document.getElementById('det-lot');
+    const selected = sel.options[sel.selectedIndex];
+    if (selected && selected.value) {
+        const lot = db.detentionLots.find(l => l.id === selected.value);
+        if (lot) {
+            document.getElementById('det-free-days').value = lot.freeDays;
+            renderDetentionSlabs(lot.slabs);
+        }
+    } else {
+        document.getElementById('det-free-days').value = '';
+        renderDetentionSlabs(defaultDetentionSlabs);
+    }
+    calcDetention();
+}
+
+function calculateProgressiveCost(chargeableDays, slabs) {
+    if (!chargeableDays || chargeableDays <= 0) return 0;
+    let total = 0;
+    const sortedSlabs = [...slabs].sort((a, b) => a.from - b.from);
+    for (let d = 1; d <= chargeableDays; d++) {
+        let rate = 0;
+        for (let s of sortedSlabs) {
+            if (d >= s.from && d <= s.to) {
+                rate = s.rate;
+                break;
+            }
+        }
+        if (rate === 0 && sortedSlabs.length > 0) {
+            rate = sortedSlabs[sortedSlabs.length - 1].rate;
+        }
+        total += rate;
+    }
+    return total;
+}
+
+function calcDetention() {
+    const pickup = document.getElementById('det-pickup').value;
+    const ret = document.getElementById('det-return').value;
+    const freeDays = parseInt(document.getElementById('det-free-days').value) || 0;
+    const currency = document.getElementById('det-currency').value;
+    let slabs = [];
+    document.querySelectorAll('#det-slabs-rows > div').forEach(row => {
+        const from = parseInt(row.querySelector('.det-slab-from').value) || 1;
+        const to = parseInt(row.querySelector('.det-slab-to').value) || 0;
+        const rate = parseFloat(row.querySelector('.det-slab-rate').value) || 0;
+        if (from > 0 && to >= from) slabs.push({ from, to, rate });
+    });
+    if (slabs.length === 0) slabs = JSON.parse(JSON.stringify(defaultDetentionSlabs));
+    let totalDays = 0,
+        chargeableDays = 0,
+        totalUSD = 0,
+        totalINR = 0,
+        slabBreakdown = '';
+    if (pickup && ret) {
+        const p = new Date(pickup);
+        const r = new Date(ret);
+        if (r > p) {
+            totalDays = Math.ceil((r - p) / (1000 * 60 * 60 * 24));
+            chargeableDays = Math.max(0, totalDays - freeDays);
+            totalUSD = calculateProgressiveCost(chargeableDays, slabs);
+            const rate = currency === 'INR' ? 1 : (db.exchangeRates.USD || 94.5);
+            totalINR = totalUSD * rate;
+            const sortedSlabs = [...slabs].sort((a, b) => a.from - b.from);
+            sortedSlabs.forEach(s => {
+                const daysInSlab = Math.max(0, Math.min(chargeableDays, s.to) - s.from + 1);
+                if (daysInSlab > 0) {
+                    slabBreakdown +=
+                        `<tr><td><span class="badge badge-yellow">SLB</span> Days ${s.from}-${s.to}</td><td class="text-right">${formatUSD(daysInSlab * s.rate)}</td><td class="text-right">${formatINR(daysInSlab * s.rate * rate)}</td></tr>`;
+                }
+            });
+        }
+    }
+    const resultArea = document.getElementById('det-result-area');
+    let html = `
+    <div class="modern-section">
+        <div class="modern-section-title"><span>⏳ Detention Breakdown</span></div>
+        <table class="modern-table">
+            <thead><tr><th>Component</th><th>Amount (USD)</th><th>Amount (INR)</th></tr></thead>
+            <tbody>
+                <tr><td><span class="badge badge-blue">DAY</span> Total Days Used</td><td class="text-right">${totalDays}</td><td class="text-right">${totalDays}</td></tr>
+                <tr><td><span class="badge badge-green">FREE</span> Free Days</td><td class="text-right">${freeDays}</td><td class="text-right">${freeDays}</td></tr>
+                <tr><td><span class="badge badge-red">CHG</span> Chargeable Days</td><td class="text-right">${chargeableDays}</td><td class="text-right">${chargeableDays}</td></tr>
+                ${slabBreakdown || '<tr><td colspan="3" class="text-muted text-center">No chargeable days to display slabs</td></tr>'}
+                <tr><td><span class="badge badge-purple">TOT</span> Total Charges</td><td class="text-right"><strong>${formatUSD(totalUSD)}</strong></td><td class="text-right"><strong>${formatINR(totalINR)}</strong></td></tr>
+            </tbody>
+            <tfoot><tr class="modern-footer-green"><td colspan="3" class="text-center">GRAND TOTAL: ${formatUSD(totalUSD)} / ${formatINR(totalINR)}</td></tr></tfoot>
+        </table>
+    </div>
+    `;
+    resultArea.innerHTML = html;
+}
+
+function clearDetentionForm() {
+    document.getElementById('det-lot').value = '';
+    document.getElementById('det-pickup').value = '';
+    document.getElementById('det-return').value = '';
+    document.getElementById('det-free-days').value = '';
+    document.getElementById('det-edit-id').value = '';
+    renderDetentionSlabs(defaultDetentionSlabs);
+    calcDetention();
+}
+
+function openAddDetentionLotModal(editIdx = null) {
+    const modalTitle = document.getElementById('modal-title');
+    const body = document.getElementById('previewBody');
+    let title = editIdx !== null ? 'Edit Lot' : 'Add New Lot';
+    modalTitle.textContent = title;
+    let lot = { name: '', freeDays: 5, slabs: JSON.parse(JSON.stringify(defaultDetentionSlabs)) };
+    if (editIdx !== null && db.detentionLots[editIdx]) {
+        lot = db.detentionLots[editIdx];
+    }
+    let slabHtml = lot.slabs.map((s, i) => `
+        <div style="display:grid;grid-template-columns:80px 1fr 1fr 1fr;gap:6px;margin-bottom:4px;align-items:center;">
+            <span style="font-weight:600;font-size:0.8rem;">Slab ${i+1}</span>
+            <input type="number" class="modal-slab-from" value="${s.from}" min="1" style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;" />
+            <input type="number" class="modal-slab-to" value="${s.to}" min="1" style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;" />
+            <input type="number" class="modal-slab-rate" value="${s.rate}" step="0.01" style="width:100%;padding:4px;border:1px solid var(--border);border-radius:4px;" />
+        </div>
+    `).join('');
+    body.innerHTML = `
+        <div class="form-grid-2col">
+            <div class="form-group" style="grid-column:1/-1;"><label>Lot Name *</label><input type="text" id="modal-det-lot-name" value="${lot.name}" placeholder="e.g. 20 GP Standard" /></div>
+            <div class="form-group" style="grid-column:1/-1;"><label>Free Days</label><input type="number" id="modal-det-free" value="${lot.freeDays}" /></div>
+        </div>
+        <div style="margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
+            <h4 style="color:var(--primary);font-size:0.9rem;margin-bottom:6px;">📈 Progressive Slabs (5 Lots)</h4>
+            ${slabHtml}
+        </div>
+        <div style="margin-top:16px;text-align:right;display:flex;gap:8px;justify-content:flex-end;">
+            <button class="btn btn-clear" onclick="closeModal('previewModal')">Cancel</button>
+            <button class="btn btn-success" onclick="saveDetentionLot(${editIdx !== null ? editIdx : 'null'})">💾 Save Lot</button>
+        </div>
+    `;
+    openModal('previewModal');
+}
+
+function saveDetentionLot(editIdx) {
+    const name = document.getElementById('modal-det-lot-name').value.trim();
+    const freeDays = parseInt(document.getElementById('modal-det-free').value) || 0;
+    if (!name) return alert('Lot Name is required.');
+    let slabs = [];
+    document.querySelectorAll('#previewBody .modal-slab-from').forEach((el, i) => {
+        const from = parseInt(el.value) || 1;
+        const to = parseInt(document.querySelectorAll('#previewBody .modal-slab-to')[i].value) || 0;
+        const rate = parseFloat(document.querySelectorAll('#previewBody .modal-slab-rate')[i].value) || 0;
+        if (from > 0 && to >= from) slabs.push({ from, to, rate });
+    });
+    if (slabs.length !== 5) {
+        alert('You must define exactly 5 slabs (From, To, Rate)');
+        return;
+    }
+    if (editIdx !== null && editIdx >= 0) {
+        db.detentionLots[editIdx] = { id: db.detentionLots[editIdx].id || 'lot-' + Date.now(), name, freeDays, slabs };
+    } else {
+        db.detentionLots.push({ id: 'lot-' + Date.now(), name, freeDays, slabs });
+    }
+    saveDB();
+    closeModal('previewModal');
+    renderDetentionLots();
+    populateDetentionLotDropdown();
+    alert('Lot saved with 5 slabs!');
+    autoBackup();
+}
+
+function deleteDetentionLot(idx) {
+    if (!confirm('Delete this lot?')) return;
+    db.detentionLots.splice(idx, 1);
+    saveDB();
+    renderDetentionLots();
+    populateDetentionLotDropdown();
+    autoBackup();
+}
+
+function renderDetentionLots() {
+    const container = document.getElementById('det-lot-list');
+    if (!container) return;
+    if (db.detentionLots.length === 0) {
+        container.innerHTML =
+            '<p style="color:var(--text-light);padding:10px;text-align:center;">No lots defined. Click "Add New Lot" to create one.</p>';
+        return;
+    }
+    container.innerHTML = db.detentionLots.map((l, i) => `
+        <div class="det-lot-card">
+            <div class="lot-info">
+                <h4>${l.name}</h4>
+                <p>Free: ${l.freeDays} days | 5 Progressive Slabs</p>
+            </div>
+            <div style="display:flex;gap:4px;">
+                <button class="btn btn-sm btn-preview" onclick="openAddDetentionLotModal(${i})">✏️</button>
+                <button class="btn btn-sm btn-clear" onclick="deleteDetentionLot(${i})">×</button>
+            </div>
+        </div>
+    `).join('');
+}
+
+function getDetentionFormData() {
+    const lotName = document.getElementById('det-lot').selectedIndex > 0 ? document.getElementById('det-lot').value :
+        'Custom';
+    const pickup = document.getElementById('det-pickup').value;
+    const ret = document.getElementById('det-return').value;
+    const freeDays = parseInt(document.getElementById('det-free-days').value) || 0;
+    let slabs = [];
+    document.querySelectorAll('#det-slabs-rows > div').forEach(row => {
+        const from = parseInt(row.querySelector('.det-slab-from').value) || 1;
+        const to = parseInt(row.querySelector('.det-slab-to').value) || 0;
+        const rate = parseFloat(row.querySelector('.det-slab-rate').value) || 0;
+        if (from > 0 && to >= from) slabs.push({ from, to, rate });
+    });
+    if (slabs.length !== 5) slabs = JSON.parse(JSON.stringify(defaultDetentionSlabs));
+    const totalDays = parseInt(document.getElementById('det-total-days').textContent) || 0;
+    const chargeableDays = parseInt(document.getElementById('det-chargeable-days').textContent) || 0;
+    const totalUSD = parseFloat(document.getElementById('det-total-usd').textContent.replace(/[^0-9.-]/g, '')) || 0;
+    const totalINR = parseFloat(document.getElementById('det-total-inr').textContent.replace(/[^0-9.-]/g, '')) || 0;
+    return { lotName, pickup, ret, freeDays, slabs, totalDays, chargeableDays, totalUSD, totalINR, timestamp: new Date()
+            .toISOString() };
+}
+
+function saveDetentionRecord() {
+    const data = getDetentionFormData();
+    if (!data.pickup || !data.ret) return alert('Please select Pickup and Return dates.');
+    const editId = document.getElementById('det-edit-id').value;
+    if (editId) {
+        const idx = db.detentionRecords.findIndex(r => r.id === editId);
+        if (idx !== -1) {
+            data.id = editId;
+            data.createdAt = db.detentionRecords[idx].createdAt || data.timestamp;
+            db.detentionRecords[idx] = data;
+            document.getElementById('det-edit-id').value = '';
+        } else { alert('Record not found.');
+            return; }
+    } else {
+        data.id = 'DD-' + Date.now().toString(36).toUpperCase();
+        data.createdAt = data.timestamp;
+        db.detentionRecords.push(data);
+    }
+    saveDB();
+    renderDetentionRecords();
+    alert('Detention record saved with progressive slabs!');
+    clearDetentionForm();
+    autoBackup();
+}
+
+function renderDetentionRecords() {
+    const search = (document.getElementById('det-search').value || '').toLowerCase();
+    const perPage = parseInt(document.getElementById('det-per-page').value) || 10;
+    let records = db.detentionRecords || [];
+    records = records.filter(r => {
+        const text = `${r.lotName} ${r.pickup} ${r.ret}`.toLowerCase();
+        return text.includes(search);
+    });
+    records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const total = records.length;
+    const totalPages = Math.ceil(total / perPage) || 1;
+    let page = parseInt(sessionStorage.getItem('detPage') || '1');
+    if (page < 1) page = 1;
+    if (page > totalPages) page = totalPages;
+    sessionStorage.setItem('detPage', String(page));
+    const start = (page - 1) * perPage;
+    const pageData = records.slice(start, start + perPage);
+    const list = document.getElementById('det-records-list');
+    if (total === 0) { list.innerHTML =
+            '<p style="color:var(--text-light);padding:20px;text-align:center;">No detention records found.</p>';
+        document.getElementById('det-records-pagination').innerHTML = ''; return; }
+    list.innerHTML = pageData.map((r, i) => {
+        const realIdx = db.detentionRecords.indexOf(r);
+        return `<div class="det-record-card">
+            <div class="info">
+                <h4>${r.lotName} (${r.pickup} → ${r.ret})</h4>
+                <p>Free Days: ${r.freeDays} | Chargeable: ${r.chargeableDays} | Total: ${formatUSD(r.totalUSD)} / ${formatINR(r.totalINR)}</p>
+                <p style="font-size:0.7rem;color:var(--text-light);">Saved: ${new Date(r.timestamp).toLocaleDateString('en-IN')}</p>
+            </div>
+            <div class="actions">
+                <button class="btn btn-sm btn-preview" onclick="previewDetentionRecord(${realIdx})">👁</button>
+                <button class="btn btn-sm btn-preview" onclick="editDetentionRecord(${realIdx})">✏️</button>
+                <button class="btn btn-sm btn-duplicate" onclick="duplicateDetentionRecord(${realIdx})">📋</button>
+                <button class="btn btn-sm btn-clear" onclick="deleteDetentionRecord(${realIdx})">×</button>
+            </div>
+        </div>`;
+    }).join('');
+    const pag = document.getElementById('det-records-pagination');
+    if (totalPages <= 1) { pag.innerHTML = ''; return; }
+    pag.innerHTML =
+        `<button class="page-btn" onclick="changeDetentionPage(${page - 1})" ${page === 1 ? 'disabled' : ''}>‹ Prev</button>
+    <span class="page-info">Page ${page} of ${totalPages} (${total} records)</span>
+    <button class="page-btn" onclick="changeDetentionPage(${page + 1})" ${page === totalPages ? 'disabled' : ''}>Next ›</button>`;
+}
+
+function changeDetentionPage(page) { sessionStorage.setItem('detPage', String(page));
+    renderDetentionRecords(); }
+
+function clearDetentionFilters() { document.getElementById('det-search').value = '';
+    document.getElementById('det-per-page').value = '10';
+    sessionStorage.setItem('detPage', '1');
+    renderDetentionRecords(); }
+
+function editDetentionRecord(idx) {
+    const r = db.detentionRecords[idx];
+    if (!r) return alert('Record not found.');
+    document.getElementById('det-lot').value = db.detentionLots.find(l => l.name === r.lotName)?.id || '';
+    document.getElementById('det-pickup').value = r.pickup;
+    document.getElementById('det-return').value = r.ret;
+    document.getElementById('det-free-days').value = r.freeDays;
+    renderDetentionSlabs(r.slabs || defaultDetentionSlabs);
+    document.getElementById('det-edit-id').value = r.id;
+    calcDetention();
+    document.getElementById('calc-detention').scrollIntoView({ behavior: 'smooth' });
+}
+
+function duplicateDetentionRecord(idx) {
+    const r = db.detentionRecords[idx];
+    if (!r) return alert('Record not found.');
+    const copy = JSON.parse(JSON.stringify(r));
+    copy.id = 'DD-' + Date.now().toString(36).toUpperCase();
+    copy.timestamp = new Date().toISOString();
+    copy.createdAt = copy.timestamp;
+    delete copy._id;
+    db.detentionRecords.push(copy);
+    saveDB();
+    renderDetentionRecords();
+    alert('Record duplicated!');
+    autoBackup();
+}
+
+function deleteDetentionRecord(idx) {
+    const r = db.detentionRecords[idx];
+    if (!r) return alert('Record not found.');
+    if (confirm(`Delete record "${r.lotName}"?`)) { db.detentionRecords.splice(idx, 1);
+        saveDB();
+        renderDetentionRecords();
+        autoBackup(); }
+}
+
+function buildDetentionPreviewHTML(data) {
+    const slabHtml = (data.slabs || defaultDetentionSlabs).map(s =>
+        `<tr><td style="padding:2px 8px;">${s.from} - ${s.to}</td><td style="padding:2px 8px;text-align:right;">${formatUSD(s.rate)}</td></tr>`
+    ).join('');
+    return `
+        <div style="background:#ffffff;color:#1a1a1a;font-family:Arial,sans-serif;max-width:700px;margin:0 auto;padding:10px;">
+            <h3 style="color:var(--primary);border-bottom:2px solid var(--primary);padding-bottom:6px;">⏳ Detention / Demurrage Report</h3>
+            <table style="width:100%;border-collapse:collapse;font-size:0.85rem;">
+                <tr><td style="padding:4px 8px;font-weight:bold;">Lot / Reference</td><td>${data.lotName}</td><td style="padding:4px 8px;font-weight:bold;">Pickup Date</td><td>${data.pickup}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;">Return Date</td><td>${data.ret}</td><td style="padding:4px 8px;font-weight:bold;">Free Days Allowed</td><td>${data.freeDays}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;">Total Days Used</td><td>${data.totalDays}</td><td style="padding:4px 8px;font-weight:bold;">Chargeable Days</td><td>${data.chargeableDays}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;">Total Charge (USD)</td><td>${formatUSD(data.totalUSD)}</td><td style="padding:4px 8px;font-weight:bold;">Total Charge (INR)</td><td>${formatINR(data.totalINR)}</td></tr>
+            </table>
+            <h4 style="color:var(--text-light);font-size:0.8rem;margin-top:12px;">📈 Progressive Slabs Used</h4>
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;border:1px solid var(--border);">
+                <thead><tr style="background:#1e3a8a;color:white;"><th style="padding:4px 8px;">Days Range</th><th style="padding:4px 8px;text-align:right;">Rate / Day</th></tr></thead>
+                <tbody>${slabHtml}</tbody>
+            </table>
+            <p style="margin-top:12px;font-size:0.7rem;color:var(--text-light);text-align:center;">Generated on ${new Date().toLocaleString('en-IN')}</p>
+        </div>
+    `;
+}
+
+function previewDetentionRecord(idx = null) {
+    let data;
+    if (idx !== null) { data = db.detentionRecords[idx]; if (!data) return alert('Record not found.'); } else { data =
+            getDetentionFormData(); if (!data.pickup || !data.ret) return alert('Please fill dates.'); }
+    document.getElementById('modal-title').textContent = 'Detention / Demurrage Preview';
+    document.getElementById('previewBody').innerHTML = buildDetentionPreviewHTML(data);
+    openModal('previewModal');
+}
+
+function downloadDetentionPDF(idx = null) {
+    let data;
+    if (idx !== null) { data = db.detentionRecords[idx]; if (!data) return alert('Record not found.'); } else { data =
+            getDetentionFormData(); if (!data.pickup || !data.ret) return alert('Please fill dates.'); }
+    const html = buildDetentionPreviewHTML(data);
+    const renderArea = document.getElementById('pdf-render-area');
+    renderArea.innerHTML = html;
+    renderArea.style.cssText = 'position:fixed;left:0;top:0;width:800px;background:white;z-index:9999;opacity:1;padding:10px;';
+    setTimeout(() => {
+        html2canvas(renderArea, { scale: 1, useCORS: true, backgroundColor: '#ffffff' })
+            .then(canvas => {
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = pdf.internal.pageSize.getHeight();
+                const margin = 10;
+                const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                let imgWidth = pdfWidth - 2 * margin;
+                let imgHeight = (canvas.height * imgWidth) / canvas.width;
+                const maxHeight = pdfHeight - 2 * margin;
+                if (imgHeight > maxHeight) { const scale = maxHeight / imgHeight;
+                    imgWidth *= scale;
+                    imgHeight *= scale; }
+                const x = (pdfWidth - imgWidth) / 2;
+                const y = (pdfHeight - imgHeight) / 2;
+                pdf.addImage(imgData, 'JPEG', x, y, imgWidth, imgHeight);
+                pdf.save(`Detention_${data.lotName}_${data.pickup}.pdf`);
+                renderArea.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:white;z-index:-1;';
+                renderArea.innerHTML = '';
+            }).catch(err => { console.error(err);
+                alert('PDF generation failed.');
+                renderArea.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:white;z-index:-1;';
+                renderArea.innerHTML = ''; });
+    }, 500);
+}
+
+// ==================== MULTI-CARRIER FREIGHT CALCULATOR ====================
+if (!db.freightCalculations) db.freightCalculations = [];
+
+const defaultFreightCharges = [
+    { name: 'OCEAN FREIGHT', unit: 'CTR', currency: 'USD', rate20: 4900, qty20: 1, rate40: 5000, qty40: 1 },
+    { name: 'BUNKER SURCHARGE', unit: 'TEU', currency: 'USD', rate20: 16, qty20: 1, rate40: 32, qty40: 1 },
+    { name: 'ETS', unit: 'TEU', currency: 'USD', rate20: 78, qty20: 1, rate40: 156, qty40: 1 },
+    { name: 'EFS', unit: 'TEU', currency: 'USD', rate20: 125, qty20: 1, rate40: 250, qty40: 1 },
+    { name: 'TERMINAL HANDLING', unit: 'CTR', currency: 'USD', rate20: 150, qty20: 1, rate40: 200, qty40: 1 },
+    { name: 'DOCUMENTATION', unit: 'BL', currency: 'USD', rate20: 30, qty20: 1, rate40: 30, qty40: 1 },
+    { name: 'SECURITY S/M', unit: 'BL', currency: 'USD', rate20: 25, qty20: 1, rate40: 25, qty40: 1 }
+];
+
+function renderFreightChargeRows(charges) {
+    const tbody = document.getElementById('fr-charges-tbody');
+    if (!tbody) return;
+    const rows = charges || defaultFreightCharges;
+    tbody.innerHTML = rows.map((c, i) => `
+        <tr draggable="true" data-index="${i}" ondragstart="onFrRowDragStart(event)" ondragover="onFrRowDragOver(event)" ondragleave="onFrRowDragLeave(event)" ondrop="onFrRowDrop(event)">
+            <td style="text-align:center;font-weight:600;">${i+1}</td>
+            <td><input type="text" class="fr-charge-name" value="${c.name}" oninput="calcFreight()" placeholder="Charge Name" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" /></td>
+            <td>
+                <select class="fr-charge-unit" onchange="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" style="text-align:center;width:100%;">
+                    <option value="CNT" ${c.unit === 'CNT' ? 'selected' : ''}>CNT</option>
+                    <option value="TEU" ${c.unit === 'TEU' ? 'selected' : ''}>TEU</option>
+                </select>
+            </td>
+            <td>
+                <select class="fr-charge-currency" onchange="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                    <option value="USD" ${c.currency === 'USD' ? 'selected' : ''}>USD</option>
+                    <option value="INR" ${c.currency === 'INR' ? 'selected' : ''}>INR</option>
+                </select>
+            </td>
+            <td><input type="number" class="fr-rate20" step="0.01" value="${c.rate20}" oninput="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" /></td>
+            <td><input type="number" class="fr-qty20" step="1" value="${c.qty20}" min="0" oninput="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" /></td>
+            <td><input type="number" class="fr-rate40" step="0.01" value="${c.rate40}" oninput="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" /></td>
+            <td><input type="number" class="fr-qty40" step="1" value="${c.qty40}" min="0" oninput="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" /></td>
+            <td style="text-align:center;"><button class="btn btn-sm btn-clear" onclick="deleteFreightChargeRow(this)">×</button></td>
+        </tr>
+    `).join('');
+    enableFreightDragDrop();
+    calcFreight();
+}
+
+let frDragData = null;
+
+function onFrRowDragStart(e) { frDragData = e.target.closest('tr');
+    frDragData.classList.add('dragging');
+    e.dataTransfer.effectAllowed = 'move'; }
+
+function onFrRowDragOver(e) { e.preventDefault();
+    const row = e.target.closest('tr'); if (row) row.classList.add('drag-over'); }
+
+function onFrRowDragLeave(e) { const row = e.target.closest('tr'); if (row) row.classList.remove('drag-over'); }
+
+function onFrRowDrop(e) {
+    e.preventDefault();
+    const target = e.target.closest('tr');
+    if (target) target.classList.remove('drag-over');
+    if (frDragData && frDragData !== target) {
+        const container = document.getElementById('fr-charges-tbody');
+        const children = Array.from(container.children);
+        const srcIdx = children.indexOf(frDragData);
+        const tgtIdx = children.indexOf(target);
+        if (srcIdx < tgtIdx) container.insertBefore(frDragData, target.nextSibling);
+        else container.insertBefore(frDragData, target);
+        frDragData.classList.remove('dragging');
+        frDragData = null;
+        container.querySelectorAll('tr').forEach((tr, i) => tr.querySelector('td:first-child').textContent = i + 1);
+        calcFreight();
+    }
+}
+
+function enableFreightDragDrop() {
+    document.querySelectorAll('#fr-charges-tbody tr').forEach(row => {
+        row.addEventListener('dragend', (e) => { e.target.closest('tr').classList.remove('dragging'); });
+    });
+}
+
+function addFreightChargeRow() {
+    const tbody = document.getElementById('fr-charges-tbody');
+    const newRow = document.createElement('tr');
+    const idx = tbody.children.length;
+    newRow.draggable = true;
+    newRow.innerHTML = `
+        <td style="text-align:center;font-weight:600;">${idx+1}</td>
+        <td><input type="text" class="fr-charge-name" value="NEW CHARGE" oninput="calcFreight()" /></td>
+        <td><input type="text" class="fr-charge-unit" value="CTR" oninput="calcFreight()" /></td>
+        <td><select class="fr-charge-currency" onchange="calcFreight()"><option value="USD">USD</option><option value="INR">INR</option></select></td>
+        <td><input type="number" class="fr-rate20" step="0.01" value="0" oninput="calcFreight()" /></td>
+        <td><input type="number" class="fr-qty20" step="1" value="0" min="0" oninput="calcFreight()" /></td>
+        <td><input type="number" class="fr-rate40" step="0.01" value="0" oninput="calcFreight()" /></td>
+        <td><input type="number" class="fr-qty40" step="1" value="0" min="0" oninput="calcFreight()" /></td>
+        <td class="row-total" id="fr-total-${idx}">$ 0.00</td>
+        <td style="text-align:center;"><button class="btn btn-sm btn-clear" onclick="deleteFreightChargeRow(this)">×</button></td>
+    `;
+    tbody.appendChild(newRow);
+    enableFreightDragDrop();
+    calcFreight();
+}
+
+function deleteFreightChargeRow(btn) {
+    const row = btn.closest('tr');
+    if (document.querySelectorAll('#fr-charges-tbody tr').length > 1) {
+        row.remove();
+        document.querySelectorAll('#fr-charges-tbody tr').forEach((tr, i) => tr.querySelector('td:first-child').textContent = i +
+            1);
+        calcFreight();
+    } else {
+        alert('You must keep at least one charge row.');
+    }
+}
+
+function calcFreight() {
+    let grand20USD = 0,
+        grand40USD = 0;
+    document.querySelectorAll('#fr-charges-tbody tr').forEach((row) => {
+        const unit = row.querySelector('.fr-charge-unit').value;
+        let rate20 = parseFloat(row.querySelector('.fr-rate20').value) || 0;
+        let rate40 = parseFloat(row.querySelector('.fr-rate40').value) || 0;
+        if (unit === 'TEU') {
+            rate40 = rate20 * 2;
+            row.querySelector('.fr-rate40').value = rate40.toFixed(2);
+        }
+        const qty20 = parseInt(row.querySelector('.fr-qty20').value) || 0;
+        const qty40 = parseInt(row.querySelector('.fr-qty40').value) || 0;
+        const curr = row.querySelector('.fr-charge-currency').value;
+        let row20 = rate20 * qty20;
+        let row40 = rate40 * qty40;
+        if (curr === 'INR') {
+            const rateUSD = db.exchangeRates.USD || 94.5;
+            row20 = row20 / rateUSD;
+            row40 = row40 / rateUSD;
+        }
+        grand20USD += row20;
+        grand40USD += row40;
+    });
+    document.getElementById('fr-summary-area').dataset.total20 = grand20USD;
+    document.getElementById('fr-summary-area').dataset.total40 = grand40USD;
+    applyFreightMargin();
+}
+
+function applyFreightMargin() {
+    const marginPct = parseFloat(document.getElementById('fr-margin-pct').value) || 0;
+    const total20 = parseFloat(document.getElementById('fr-summary-area').dataset.total20) || 0;
+    const total40 = parseFloat(document.getElementById('fr-summary-area').dataset.total40) || 0;
+    const margin20 = total20 * (marginPct / 100);
+    const margin40 = total40 * (marginPct / 100);
+    const sell20 = total20 + margin20;
+    const sell40 = total40 + margin40;
+    const html = `
+    <div class="modern-section">
+        <div class="modern-section-title"><span>💰 Freight Cost Breakdown</span></div>
+        <table class="modern-table">
+            <thead><tr><th>Component</th><th>20 GP (USD)</th><th>40 HC (USD)</th></tr></thead>
+            <tbody>
+                <tr><td><span class="badge badge-blue">FRT</span> Total Freight Cost</td><td class="text-right">${formatUSD(total20)}</td><td class="text-right">${formatUSD(total40)}</td></tr>
+                <tr><td><span class="badge badge-yellow">MRG</span> Margin % (${marginPct}%)</td><td class="text-right">${formatUSD(margin20)}</td><td class="text-right">${formatUSD(margin40)}</td></tr>
+                <tr><td><span class="badge badge-purple">SLP</span> Sell Price</td><td class="text-right"><strong>${formatUSD(sell20)}</strong></td><td class="text-right"><strong>${formatUSD(sell40)}</strong></td></tr>
+            </tbody>
+            <tfoot><tr class="modern-footer-orange"><td colspan="3" class="text-center">FINAL SELLING PRICE: ${formatUSD(sell20)} / ${formatUSD(sell40)}</td></tr></tfoot>
+        </table>
+    </div>
+    `;
+    document.getElementById('fr-summary-area').innerHTML = html;
+}
+
+function saveFreightRecord() {
+    const carrier = document.getElementById('fr-carrier').value.trim().toUpperCase();
+    const pol = document.getElementById('fr-pol').value.trim().toUpperCase();
+    const pod = document.getElementById('fr-pod').value.trim().toUpperCase();
+    const commodity = document.getElementById('fr-commodity').value;
+    const validFrom = document.getElementById('fr-valid-from').value;
+    const validTill = document.getElementById('fr-valid-till').value;
+
+    if (!carrier || !pol || !pod || !validTill) {
+        alert('Please fill Carrier, POL, POD, and Valid Till (mandatory fields).');
+        return;
+    }
+
+    const sell20 = parseFloat(document.getElementById('fr-summary-area').dataset.total20) || 0;
+    const sell40 = parseFloat(document.getElementById('fr-summary-area').dataset.total40) || 0;
+    const marginPct = parseFloat(document.getElementById('fr-margin-pct').value) || 0;
+    const final20 = sell20 + (sell20 * (marginPct / 100));
+    const final40 = sell40 + (sell40 * (marginPct / 100));
+
+    if (final20 <= 0 && final40 <= 0) {
+        alert('No freight costs calculated. Please enter valid rates and quantities.');
+        return;
+    }
+
+    const now = new Date().toISOString();
+
+    const upsertRate = (containerType, amount) => {
+        if (amount <= 0) return;
+        const existingIdx = db.rateSheet.findIndex(r =>
+            r.carrierName === carrier &&
+            r.pol === pol &&
+            r.pod === pod &&
+            r.containerType === containerType &&
+            r.freightType === 'SEA' &&
+            r.validFrom === validFrom &&
+            r.validTo === validTill
+        );
+        if (existingIdx !== -1) db.rateSheet.splice(existingIdx, 1);
+
+        db.rateSheet.push({
+            id: 'RS-' + Date.now().toString(36).toUpperCase() + '-' + containerType.replace(' ', ''),
+            carrierName: carrier,
+            freightType: 'SEA',
+            pol: pol,
+            pod: pod,
+            containerType: containerType,
+            currency: 'USD',
+            freightAmount: amount,
+            transitTime: '',
+            commodity: commodity,
+            validFrom: validFrom || new Date().toISOString().split('T')[0],
+            validTo: validTill,
+            remarks: `Auto-saved from Freight Calculator (${containerType})`,
+            createdAt: now,
+            updatedAt: now,
+            source: 'calc'
+        });
+    };
+
+    upsertRate('20 GP', final20);
+    upsertRate('40 HC', final40);
+
+    saveDB();
+    alert('✅ Rates saved directly to the Rate Sheet (20 GP & 40 HC)!');
+    clearFreightForm();
+    if (document.getElementById('ratesheet')?.classList.contains('active')) {
+        renderRateSheet();
+        updateExpiryDashboard();
+    }
+    autoBackup();
+}
+
+function renderFreightRecords() {
+    const search = (document.getElementById('fr-search').value || '').toLowerCase();
+    const perPage = parseInt(document.getElementById('fr-per-page').value) || 10;
+    let records = db.freightCalculations || [];
+    records = records.filter(r => {
+        const text = `${r.carrier} ${r.origin}`.toLowerCase();
+        return text.includes(search);
+    });
+    records.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+    const total = records.length;
+    const totalPages = Math.ceil(total / perPage) || 1;
+    let page = parseInt(sessionStorage.getItem('frPage') || '1');
+    if (page < 1) page = 1;
+    if (page > totalPages) page = totalPages;
+    sessionStorage.setItem('frPage', String(page));
+    const start = (page - 1) * perPage;
+    const pageData = records.slice(start, start + perPage);
+
+    const list = document.getElementById('fr-records-list');
+    if (total === 0) { list.innerHTML =
+            '<p style="color:var(--text-light);padding:20px;text-align:center;">No freight records found.</p>';
+        document.getElementById('fr-records-pagination').innerHTML = ''; return; }
+    list.innerHTML = pageData.map((r, i) => {
+        const realIdx = db.freightCalculations.indexOf(r);
+        return `<div class="det-record-card" style="border-left:4px solid var(--primary);">
+            <div class="info">
+                <h4>${r.carrier} (${r.origin})</h4>
+                <p>${r.charges.length} charges | Total: ${formatUSD(r.totalUSD)} / ${formatINR(r.totalINR)}</p>
+                <p style="font-size:0.7rem;color:var(--text-light);">Saved: ${new Date(r.timestamp).toLocaleDateString('en-IN')}</p>
+            </div>
+            <div class="actions">
+                <button class="btn btn-sm btn-preview" onclick="previewFreightRecord(${realIdx})">👁</button>
+                <button class="btn btn-sm btn-preview" onclick="editFreightRecord(${realIdx})">✏️</button>
+                <button class="btn btn-sm btn-duplicate" onclick="duplicateFreightRecord(${realIdx})">📋</button>
+                <button class="btn btn-sm btn-clear" onclick="deleteFreightRecord(${realIdx})">×</button>
+            </div>
+        </div>`;
+    }).join('');
+    const pag = document.getElementById('fr-records-pagination');
+    if (totalPages <= 1) { pag.innerHTML = ''; return; }
+    pag.innerHTML =
+        `<button class="page-btn" onclick="changeFreightPage(${page - 1})" ${page === 1 ? 'disabled' : ''}>‹ Prev</button>
+    <span class="page-info">Page ${page} of ${totalPages} (${total} records)</span>
+    <button class="page-btn" onclick="changeFreightPage(${page + 1})" ${page === totalPages ? 'disabled' : ''}>Next ›</button>`;
+}
+
+function changeFreightPage(page) { sessionStorage.setItem('frPage', String(page));
+    renderFreightRecords(); }
+
+function clearFreightFilters() { document.getElementById('fr-search').value = '';
+    document.getElementById('fr-per-page').value = '10';
+    sessionStorage.setItem('frPage', '1');
+    renderFreightRecords(); }
+
+function clearFreightForm() {
+    document.getElementById('fr-carrier').value = '';
+    document.getElementById('fr-pol').value = '';
+    document.getElementById('fr-pod').value = '';
+    document.getElementById('fr-commodity').value = 'NON HAZ';
+    document.getElementById('fr-valid-from').valueAsDate = new Date();
+    document.getElementById('fr-valid-till').value = '';
+    document.getElementById('fr-currency').value = 'USD';
+    document.getElementById('fr-margin-pct').value = '5';
+    document.querySelectorAll('#fr-charges-tbody tr').forEach(row => {
+        row.querySelector('.fr-rate20').value = '0';
+        row.querySelector('.fr-rate40').value = '0';
+        row.querySelector('.fr-qty20').value = '0';
+        row.querySelector('.fr-qty40').value = '0';
+        row.querySelector('.fr-charge-unit').value = 'CNT';
+    });
+    calcFreight();
+}
+
+function editFreightRecord(idx) {
+    const r = db.freightCalculations[idx];
+    if (!r) return alert('Record not found.');
+    loadFreightForm(r);
+    document.getElementById('calc-freight').scrollIntoView({ behavior: 'smooth' });
+}
+
+function duplicateFreightRecord(idx) {
+    const r = db.freightCalculations[idx];
+    if (!r) return alert('Record not found.');
+    const copy = JSON.parse(JSON.stringify(r));
+    copy.id = 'FR-' + Date.now().toString(36).toUpperCase();
+    copy.timestamp = new Date().toISOString();
+    copy.createdAt = copy.timestamp;
+    delete copy._id;
+    db.freightCalculations.push(copy);
+    saveDB();
+    renderFreightRecords();
+    alert('Record duplicated!');
+    autoBackup();
+}
+
+function duplicateFreightCurrent() {
+    const data = getFreightFormData();
+    if (!data.carrier) return alert('Please fill Carrier.');
+    data.id = 'FR-' + Date.now().toString(36).toUpperCase();
+    data.timestamp = new Date().toISOString();
+    data.createdAt = data.timestamp;
+    db.freightCalculations.push(data);
+    saveDB();
+    renderFreightRecords();
+    alert('Current form duplicated and saved!');
+    clearFreightForm();
+    autoBackup();
+}
+
+function deleteFreightRecord(idx) {
+    const r = db.freightCalculations[idx];
+    if (!r) return alert('Record not found.');
+    if (confirm(`Delete freight calculation for "${r.carrier}"?`)) { db.freightCalculations.splice(idx, 1);
+        saveDB();
+        renderFreightRecords();
+        autoBackup(); }
+}
+
+function buildFreightPreviewHTML(data) {
+    const chargeRows = data.charges.map((c, i) => `
+        <tr><td>${i+1}</td><td>${c.name}</td><td>${c.unit}</td><td>${c.currency}</td>
+        <td style="text-align:right;">${formatUSD(c.rate20)}</td><td style="text-align:center;">${c.qty20}</td>
+        <td style="text-align:right;">${formatUSD(c.rate40)}</td><td style="text-align:center;">${c.qty40}</td>
+        <td style="text-align:right;font-weight:700;">${formatUSD((c.rate20*c.qty20)+(c.rate40*c.qty40))}</td></tr>
+    `).join('');
+    return `
+        <div style="background:#ffffff;color:#1a1a1a;font-family:Arial,sans-serif;max-width:800px;margin:0 auto;padding:10px;">
+            <h3 style="color:var(--primary);border-bottom:2px solid var(--primary);padding-bottom:6px;">💰 Freight Calculation</h3>
+            <table style="width:100%;border-collapse:collapse;font-size:0.85rem;margin-bottom:12px;">
+                <tr><td style="padding:4px 8px;font-weight:bold;">Carrier</td><td>${data.carrier}</td><td style="padding:4px 8px;font-weight:bold;">Origin</td><td>${data.origin}</td></tr>
+                <tr><td style="padding:4px 8px;font-weight:bold;">Base Currency</td><td colspan="3">${data.baseCurrency}</td></tr>
+            </table>
+            <h4 style="color:var(--primary);font-size:0.9rem;">📋 Charges Breakdown</h4>
+            <table style="width:100%;border-collapse:collapse;font-size:0.8rem;border:1px solid var(--border);">
+                <thead><tr style="background:#1e3a8a;color:white;"><th>#</th><th>Charge</th><th>Unit</th><th>Curr</th><th>20′ Rate</th><th>20′ Qty</th><th>40′ Rate</th><th>40′ Qty</th><th>Total</th></tr></thead>
+                <tbody>${chargeRows}</tbody>
+                <tfoot><tr style="background:#f1f5f9;font-weight:bold;"><td colspan="8" style="text-align:right;padding:6px 8px;">GRAND TOTAL</td><td style="text-align:right;padding:6px 8px;color:var(--primary);">${formatUSD(data.totalUSD)}</td></tr></tfoot>
+            </table>
+            <p style="margin-top:12px;font-size:0.7rem;color:var(--text-light);text-align:center;">Generated on ${new Date().toLocaleString('en-IN')}</p>
+        </div>
+    `;
+}
+
+function previewFreightRecord(idx = null) {
+    let data;
+    if (idx !== null) { data = db.freightCalculations[idx]; if (!data) return alert('Record not found.'); } else { data =
+            getFreightFormData(); if (!data.carrier) return alert('Please fill Carrier.'); }
+    document.getElementById('modal-title').textContent = 'Freight Calculation Preview';
+    document.getElementById('previewBody').innerHTML = buildFreightPreviewHTML(data);
+    openModal('previewModal');
+}
+
+function downloadFreightPDF(idx = null) {
+    let data;
+    if (idx !== null) { data = db.freightCalculations[idx]; if (!data) return alert('Record not found.'); } else { data =
+            getFreightFormData(); if (!data.carrier) return alert('Please fill Carrier.'); }
+    const html = buildFreightPreviewHTML(data);
+    const renderArea = document.getElementById('pdf-render-area');
+    renderArea.innerHTML = html;
+    renderArea.style.cssText = 'position:fixed;left:0;top:0;width:800px;background:white;z-index:9999;opacity:1;padding:10px;';
+    setTimeout(() => {
+        html2canvas(renderArea, { scale: 1, useCORS: true, backgroundColor: '#ffffff' })
+            .then(canvas => {
+                const { jsPDF } = window.jspdf;
+                const pdf = new jsPDF({ unit: 'mm', format: 'a4', orientation: 'portrait' });
+                const pdfWidth = pdf.internal.pageSize.getWidth();
+                const pdfHeight = pdf.internal.pageSize.getHeight();
+                const margin = 10;
+                const imgData = canvas.toDataURL('image/jpeg', 0.95);
+                let imgWidth = pdfWidth - 2 * margin;
+                let imgHeight = (canvas.height * imgWidth) / canvas.width;
+                const maxHeight = pdfHeight - 2 * margin;
+                if (imgHeight > maxHeight) { const scale = maxHeight / imgHeight;
+                    imgWidth *= scale;
+                    imgHeight *= scale; }
+                const x = (pdfWidth - imgWidth) / 2;
+                const y = (pdfHeight - imgHeight) / 2;
+                pdf.addImage(imgData, 'JPEG', x, y, imgWidth, imgHeight);
+                pdf.save(`Freight_${data.carrier}_${data.origin}.pdf`);
+                renderArea.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:white;z-index:-1;';
+                renderArea.innerHTML = '';
+            }).catch(err => { console.error(err);
+                alert('PDF generation failed.');
+                renderArea.style.cssText = 'position:fixed;left:-10000px;top:0;width:800px;background:white;z-index:-1;';
+                renderArea.innerHTML = ''; });
+    }, 500);
+}
+
+function populateFreightDropdowns() {
+    const selCarrier = document.getElementById('fr-carrier');
+    const selPol = document.getElementById('fr-pol');
+    const selPod = document.getElementById('fr-pod');
+    const visibleCarriers = db.carriers.filter(c => !(db.hiddenItems.carriers || []).includes(c));
+    const visiblePol = db.pol.filter(p => !(db.hiddenItems.pol || []).includes(p));
+    const visiblePod = db.pod.filter(p => !(db.hiddenItems.pod || []).includes(p));
+    if (selCarrier) {
+        selCarrier.innerHTML = '<option value="">Select Carrier</option>' +
+            visibleCarriers.map(c => `<option value="${c}">${c}</option>`).join('');
+    }
+    if (selPol) {
+        selPol.innerHTML = '<option value="">Select POL</option>' +
+            visiblePol.map(p => `<option value="${p}">${p}</option>`).join('');
+    }
+    if (selPod) {
+        selPod.innerHTML = '<option value="">Select POD</option>' +
+            visiblePod.map(p => `<option value="${p}">${p}</option>`).join('');
+    }
+}
