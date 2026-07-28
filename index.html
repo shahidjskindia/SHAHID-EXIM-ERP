@@ -15,6 +15,10 @@
     </script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/sql.js/1.10.3/sql-wasm.js">
     </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/pdfmake.min.js">
+    </script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdfmake/0.2.7/vfs_fonts.js">
+    </script>
     <style>
         /* ===== DSR MODULE ENHANCEMENTS ===== */
         :root {
@@ -310,17 +314,17 @@
             margin: 8px 0 4px 0;
             letter-spacing: 0.5px;
         }
-        .dsr-section-title.green-title {
-            background: var(--dsr-header-green);
-        }
-        .dsr-section-title.teal-title {
-            background: var(--dsr-teal);
+        .dsr-section-title.green-title,
+        .dsr-section-title.darkblue-label {
+            background: var(--success) !important;
+            color: white !important;
+            font-weight: bold !important;
         }
 
         /* ---- Charges Grid (SEA) ---- */
         .dsr-charges-grid {
             display: grid;
-            grid-template-columns: 1fr 1fr;
+            grid-template-columns: 1fr 1fr 1fr !important;
             gap: 6px;
             padding: 4px 0;
         }
@@ -483,8 +487,10 @@
         /* ===== LOGIN OVERLAY ===== */
         #login-overlay {
             position: fixed;
-            top: 0; left: 0;
-            width: 100vw; height: 100vh;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
             background: rgba(0, 0, 0, 0.7);
             z-index: 99999;
             display: flex;
@@ -546,12 +552,503 @@
         .perm-grid label.disabled input {
             cursor: not-allowed;
         }
+
+        /* Heading ka Text Center (Middle) karne ka CSS */
+        .dsr-section-title.green-title,
+        .dsr-section-title.darkblue-label {
+            border: 1px solid #d1d5db !important;
+            border-radius: 6px !important;
+            padding: 15px 12px !important;
+            margin: 12px 0 15px 0 !important;
+            font-size: 1.2rem !important;
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
+            width: 100% !important;
+        }
+        .dsr-section-title.green-title {
+            background: var(--success) !important;
+            color: white !important;
+        }
+        .dsr-section-title.darkblue-label {
+            background: #0f172a !important;
+            color: white !important;
+        }
+
+        /* ===== MEASUREMENT TOOLS COMPACT LAYOUT ===== */
+        .measurement-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        .measurement-grid .form-section {
+            padding: 12px 14px;
+            margin-bottom: 0;
+        }
+        .measurement-grid .form-grid-3col {
+            grid-template-columns: 1fr 1fr 1fr;
+            gap: 6px;
+        }
+        .measurement-grid .form-grid-3col .form-group label {
+            font-size: 0.6rem;
+            margin-bottom: 1px;
+        }
+        .measurement-grid .form-grid-3col input,
+        .measurement-grid .form-grid-3col select {
+            padding: 4px 6px;
+            font-size: 0.75rem;
+            height: 28px;
+        }
+        .measurement-grid .form-grid-3col .form-group input[readonly] {
+            font-size: 0.7rem;
+            padding: 4px 6px;
+            height: 28px;
+        }
+        .measurement-grid h3 {
+            font-size: 0.8rem;
+            margin-bottom: 4px;
+        }
+
+        /* --- NEW CALCULATORS (Tabs) --- */
+        .calc-tabs {
+            display: flex;
+            gap: 6px;
+            margin-bottom: 12px;
+            border-bottom: 2px solid var(--border);
+            padding-bottom: 8px;
+            flex-wrap: wrap;
+        }
+        .calc-tab-btn {
+            padding: 6px 16px;
+            border: 1px solid transparent;
+            border-radius: 20px;
+            background: var(--bg);
+            color: var(--text-light);
+            font-weight: 600;
+            font-size: 0.75rem;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .calc-tab-btn.active {
+            background: var(--primary);
+            color: white;
+            border-color: var(--primary);
+        }
+        .calc-panel {
+            display: none;
+            animation: fadeIn 0.3s ease;
+        }
+        .calc-panel.active {
+            display: block;
+        }
+        .calc-result-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 10px;
+            margin-top: 12px;
+            background: var(--bg);
+            padding: 12px;
+            border-radius: 6px;
+        }
+        .calc-result-grid .result-item {
+            display: flex;
+            justify-content: space-between;
+            padding: 4px 0;
+            border-bottom: 1px solid var(--border);
+        }
+        .calc-result-grid .result-item .label {
+            font-size: 0.7rem;
+            color: var(--text-light);
+            font-weight: 600;
+        }
+        .calc-result-grid .result-item .value {
+            font-weight: 700;
+            color: var(--primary);
+            font-size: 0.85rem;
+        }
+        .calc-result-grid .result-item.total .value {
+            color: var(--success);
+            font-size: 1rem;
+        }
+        @media (max-width: 768px) {
+            .measurement-grid {
+                grid-template-columns: 1fr;
+            }
+            .calc-result-grid {
+                grid-template-columns: 1fr;
+            }
+        }
+
+        /* ---- Trucking Calculator ---- */
+        #calc-us-trucking .truck-additional-row {
+            display: flex;
+            gap: 6px;
+            align-items: center;
+            background: var(--card-bg);
+            padding: 6px 8px;
+            margin-bottom: 4px;
+            border: 4px solid var(--border);
+            border-radius: 4px;
+            cursor: grab;
+            transition: background 0.2s;
+        }
+        #calc-us-trucking .truck-additional-row.dragging {
+            opacity: 0.4;
+        }
+        #calc-us-trucking .truck-additional-row.drag-over {
+            border: 2px solid var(--primary);
+            background: rgba(59, 130, 246, 0.1);
+        }
+        #calc-us-trucking .truck-additional-row input {
+            flex: 1;
+            padding: 4px 6px;
+            border: 3px solid var(--border);
+            border-radius: 2px;
+            font-size: 0.8rem;
+            background: var(--card-bg);
+            color: var(--text);
+            min-width: 60px;
+        }
+        #calc-us-trucking .truck-additional-row .charge-name {
+            font-weight: 600;
+            width: 150px;
+            flex-shrink: 0;
+        }
+        #calc-us-trucking .truck-additional-row .charge-amt {
+            width: 100px;
+            text-align: right;
+        }
+        #calc-us-trucking .truck-additional-row .charge-del {
+            background: var(--danger);
+            color: white;
+            border: none;
+            border-radius: 3px;
+            cursor: pointer;
+            padding: 2px 8px;
+            font-weight: bold;
+        }
+        .truck-shipment-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        .truck-shipment-card .info {
+            flex: 1;
+            min-width: 200px;
+        }
+        .truck-shipment-card .info h4 {
+            color: var(--primary);
+            margin-bottom: 2px;
+            font-size: 0.9rem;
+        }
+        .truck-shipment-card .info p {
+            font-size: 0.75rem;
+            color: var(--text-light);
+        }
+        .truck-shipment-card .actions {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+
+        /* ---- OOG & OT Calculator ---- */
+        #calc-oog-ot .oog-dim-table {
+            width: 100%;
+            border-collapse: collapse;
+            font-size: 0.8rem;
+            margin-top: 6px;
+        }
+        #calc-oog-ot .oog-dim-table th {
+            background: var(--primary);
+            color: white;
+            padding: 4px 8px;
+            text-align: left;
+        }
+        #calc-oog-ot .oog-dim-table td {
+            padding: 4px 8px;
+            border-bottom: 1px solid var(--border);
+        }
+        #calc-oog-ot .oog-dim-table .exceed {
+            color: var(--danger);
+            font-weight: 700;
+        }
+        #calc-oog-ot .oog-dim-table .fit {
+            color: var(--success);
+            font-weight: 600;
+        }
+        #calc-oog-ot .oog-dim-table .unit-label {
+            font-size: 0.65rem;
+            color: var(--text-light);
+        }
+
+        /* Additional table styling inside OOG */
+        #oog-container-table input {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 6px;
+            font-size: 0.8rem;
+            background: var(--card-bg);
+            color: var(--text);
+        }
+        #oog-container-table select {
+            width: 100%;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            padding: 4px 6px;
+            font-size: 0.8rem;
+            background: var(--card-bg);
+            color: var(--text);
+        }
+        #oog-container-table tbody tr:hover {
+            background: rgba(59, 130, 246, 0.05);
+        }
+
+        /* ---- Detention & Demurrage ---- */
+        #calc-detention .det-lot-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 6px;
+            padding: 10px 12px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            box-shadow: var(--shadow);
+        }
+        #calc-detention .det-lot-card .lot-info h4 {
+            color: var(--primary);
+            font-size: 0.85rem;
+            margin-bottom: 2px;
+        }
+        #calc-detention .det-lot-card .lot-info p {
+            font-size: 0.7rem;
+            color: var(--text-light);
+        }
+        #calc-detention .det-record-card {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 10px;
+            margin-bottom: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            flex-wrap: wrap;
+            gap: 8px;
+        }
+        #calc-detention .det-record-card .info {
+            flex: 1;
+            min-width: 200px;
+        }
+        #calc-detention .det-record-card .info h4 {
+            color: var(--primary);
+            margin-bottom: 2px;
+            font-size: 0.9rem;
+        }
+        #calc-detention .det-record-card .info p {
+            font-size: 0.75rem;
+            color: var(--text-light);
+        }
+        #calc-detention .det-record-card .actions {
+            display: flex;
+            gap: 4px;
+            flex-wrap: wrap;
+        }
+
+        /* ---- Freight Calculator ---- */
+        #fr-charges-table tbody tr {
+            transition: all 0.2s;
+            cursor: grab;
+        }
+        #fr-charges-table tbody tr.dragging {
+            opacity: 0.4;
+        }
+        #fr-charges-table tbody tr.drag-over {
+            border: 2px dashed var(--primary);
+            background: rgba(59, 130, 246, 0.1);
+        }
+        #fr-charges-table input {
+            width: 100%;
+            padding: 4px 6px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.8rem;
+            background: var(--card-bg);
+            color: var(--text);
+            text-align: right;
+        }
+        #fr-charges-table input.charge-name {
+            text-transform: uppercase;
+            text-align: center;
+            font-weight: 600;
+        }
+        #fr-charges-table select {
+            width: 100%;
+            padding: 4px;
+            border: 1px solid var(--border);
+            border-radius: 4px;
+            font-size: 0.8rem;
+            background: var(--card-bg);
+            color: var(--text);
+        }
+        #fr-charges-table .row-total {
+            font-weight: 700;
+            color: var(--primary);
+            text-align: right;
+            padding-right: 10px;
+        }
+
+        /* ---- Freight Calculator - Centered & Focus Red ---- */
+        #fr-charges-table input,
+        #fr-charges-table select,
+        #fr-carrier,
+        #fr-pol,
+        #fr-pod,
+        #fr-commodity,
+        #fr-valid-from,
+        #fr-valid-till,
+        #fr-currency {
+            text-align: left !important;
+        }
+        #fr-charges-table input:focus,
+        #fr-charges-table select:focus,
+        #fr-carrier:focus,
+        #fr-pol:focus,
+        #fr-pod:focus,
+        #fr-commodity:focus,
+        #fr-valid-from:focus,
+        #fr-valid-till:focus,
+        #fr-currency:focus {
+            border-color: var(--danger) !important;
+            background: var(--input-focus-bg) !important;
+            box-shadow: 0 0 0 2px rgba(239, 68, 68, 0.2) !important;
+            outline: none;
+        }
+
+        /* ===== MODERN TABLE STYLE (Matches Attached Image) ===== */
+        .modern-section {
+            background: var(--card-bg);
+            border: 1px solid var(--border);
+            border-radius: 12px;
+            padding: 16px 0;
+            margin-bottom: 16px;
+            box-shadow: var(--shadow);
+            overflow: hidden;
+        }
+        .modern-section-title {
+            font-size: 1rem;
+            font-weight: 700;
+            margin: 0 16px 12px 16px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            color: var(--text);
+        }
+        .modern-table {
+            width: 100%;
+            border-collapse: separate;
+            border-spacing: 0;
+            font-size: 0.85rem;
+        }
+        .modern-table th {
+            background: #2563eb;
+            color: white;
+            padding: 10px 16px;
+            text-align: left;
+            font-weight: 600;
+        }
+        .modern-table td {
+            padding: 10px 16px;
+            border-bottom: 1px solid var(--border);
+            background: var(--card-bg);
+        }
+        .modern-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        /* Colored Badges */
+        .badge {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            padding: 2px 10px;
+            border-radius: 4px;
+            font-size: 0.7rem;
+            font-weight: 700;
+            margin-right: 8px;
+            height: 20px;
+            min-width: 20px;
+            color: #1a1a1a;
+        }
+        .badge-blue {
+            background: #dbeafe;
+            color: #1e40af;
+        }
+        .badge-yellow {
+            background: #fef3c7;
+            color: #92400e;
+        }
+        .badge-purple {
+            background: #ede9fe;
+            color: #5b21b6;
+        }
+        .badge-red {
+            background: #fee2e2;
+            color: #991b1b;
+        }
+        .badge-green {
+            background: #d1fae5;
+            color: #065f46;
+        }
+
+        /* Footer Rows for Final Totals */
+        .modern-footer-orange {
+            background: #f59e0b !important;
+            color: white !important;
+            font-weight: 800;
+            font-size: 1.05rem;
+        }
+        .modern-footer-green {
+            background: #10b981 !important;
+            color: white !important;
+            font-weight: 800;
+            font-size: 1.05rem;
+        }
+
+        /* Helpers */
+        .text-right {
+            text-align: right !important;
+        }
+        .text-center {
+            text-align: center !important;
+        }
+        .text-muted {
+            color: var(--text-light);
+            font-weight: 400;
+        }
     </style>
 </head>
 <body>
     <header>
         <div class="header-left"><h1>🚢 Freight Forwarding Quotation System</h1></div>
-        <div class="header-actions"><button class="theme-toggle" type="button" onclick="toggleDarkMode()">🌙 Dark Mode</button></div>
+        <div class="header-actions">
+            <!-- GLOBAL SEARCH BAR -->
+            <div class="global-search-wrapper">
+                <input type="text" id="global-search" class="global-search-input"
+                placeholder="🔍 Search quotes, shipments, rates..."
+                oninput="debouncedGlobalSearch()" autocomplete="off" />
+                <div id="global-search-results" class="global-search-results"></div>
+            </div>
+            <button class="theme-toggle" type="button" onclick="toggleDarkMode()">🌙 Dark Mode</button>
+        </div>
     </header>
 
     <div class="app-wrapper">
@@ -881,10 +1378,10 @@
                     <div class="add-shipment-wrapper">
                         <button class="btn btn-success" type="button" id="addShipmentBtn" onclick="toggleAddShipmentDropdown()">+ Add Shipment ▼</button>
                         <div class="add-shipment-dropdown" id="addShipmentDropdown">
-                            <div class="dropdown-item" onclick="openSeaDsrModal()">
+                            <div class="dropdown-item" onclick="openDsrModal('SEA')">
                                 <span class="icon">🚢</span> SEA Shipment
                             </div>
-                            <div class="dropdown-item" onclick="openAirDsrModal()">
+                            <div class="dropdown-item" onclick="openDsrModal('AIR')">
                                 <span class="icon">✈️</span> AIR Shipment
                             </div>
                         </div>
@@ -953,69 +1450,850 @@
 
             <!-- ===== MEASUREMENT ===== -->
             <div class="tab-panel" id="measurement">
-                <div class="tab-heading"><h2>📏 Measurement Tools</h2></div>
-                <div class="form-section">
-                    <h3>1️⃣ CBM Converter</h3>
-                    <div class="form-grid-3col">
-                        <div class="form-group"><label>Length</label><input type="number" id="cbm-length" placeholder="Enter length" oninput="calculateCBM()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Width</label><input type="number" id="cbm-width" placeholder="Enter width" oninput="calculateCBM()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Height</label><input type="number" id="cbm-height" placeholder="Enter height" oninput="calculateCBM()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Unit</label><select id="cbm-unit" onchange="calculateCBM()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="cm">Centimeter (CM)</option><option value="inch">Inch</option><option value="mm">Millimeter (MM)</option><option value="m">Meter (M)</option></select></div>
-                        <div class="form-group"><label>Quantity</label><input type="number" id="cbm-qty" value="1" oninput="calculateCBM()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Total CBM</label><input type="text" id="cbm-result" readonly style="background:#d1fae5;font-weight:700;color:#065f46;"></div>
-                    </div>
-                </div>
-                <div class="form-section">
-                    <h3>2️⃣ Air Chargeable Weight Calculator</h3>
-                    <div class="form-grid-3col">
-                        <div class="form-group"><label>Length</label><input type="number" id="air-length" placeholder="Enter length" oninput="calculateAirChargeable()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Width</label><input type="number" id="air-width" placeholder="Enter width" oninput="calculateAirChargeable()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Height</label><input type="number" id="air-height" placeholder="Enter height" oninput="calculateAirChargeable()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Unit</label><select id="air-unit" onchange="calculateAirChargeable()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="cm">Centimeter (CM)</option><option value="inch">Inch</option><option value="mm">Millimeter (MM)</option></select></div>
-                        <div class="form-group"><label>Quantity</label><input type="number" id="air-qty" value="1" oninput="calculateAirChargeable()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Chargeable Weight (KGS)</label><input type="text" id="air-result" readonly style="background:#dbeafe;font-weight:700;color:#1e40af;"></div>
-                    </div>
-                    <p style="font-size:0.78rem;color:var(--text-light);margin-top:8px;">Formula: (L × W × H) / 6000 for CM, / 366 for Inch, / 6000000 for MM</p>
-                </div>
-                <div class="form-section">
-                    <h3>3️⃣ Container Dimensions</h3>
-                    <div class="table-wrap">
-                        <table class="master-table">
-                            <thead><tr><th>Container Type</th><th>Length</th><th>Width</th><th>Height</th><th>Max Weight</th><th>CBM</th><th>Action</th></tr></thead>
-                            <tbody id="container-dimensions-body"></tbody>
-                        </table>
-                    </div>
-                    <div style="margin-top:10px;">
-                        <button class="btn btn-success" type="button" onclick="addContainerDimension()">+ Add New Container</button>
-                        <button class="btn btn-quoted" type="button" onclick="saveContainerDimensions()">💾 Save All</button>
-                    </div>
-                </div>
-                <div class="form-section">
-                    <h3>4️⃣ Calculator</h3>
-                    <div style="max-width:300px;margin:0 auto;">
-                        <input type="text" id="calc-display" readonly style="width:100%;padding:15px;font-size:1.5rem;text-align:right;background:#f1f5f9;border:2px solid var(--border);border-radius:8px;margin-bottom:10px;" autofocus>
-                        <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:5px;">
-                            <button class="btn btn-clear" type="button" onclick="calcInput('7')">7</button>
-                            <button class="btn btn-clear" type="button" onclick="calcInput('8')">8</button>
-                            <button class="btn btn-clear" type="button" onclick="calcInput('9')">9</button>
-                            <button class="btn btn-warning" type="button" onclick="calcInput('/')">÷</button>
-                            <button class="btn btn-clear" type="button" onclick="calcInput('4')">4</button>
-                            <button class="btn btn-clear" type="button" onclick="calcInput('5')">5</button>
-                            <button class="btn btn-clear" type="button" onclick="calcInput('6')">6</button>
-                            <button class="btn btn-warning" type="button" onclick="calcInput('*')">×</button>
-                            <button class="btn btn-clear" type="button" onclick="calcInput('1')">1</button>
-                            <button class="btn btn-clear" type="button" onclick="calcInput('2')">2</button>
-                            <button class="btn btn-clear" type="button" onclick="calcInput('3')">3</button>
-                            <button class="btn btn-warning" type="button" onclick="calcInput('-')">−</button>
-                            <button class="btn btn-clear" type="button" onclick="calcInput('0')">0</button>
-                            <button class="btn btn-clear" type="button" onclick="calcInput('.')">.</button>
-                            <button class="btn btn-success" type="button" onclick="calcEquals()">=</button>
-                            <button class="btn btn-warning" type="button" onclick="calcInput('+')">+</button>
-                            <button class="btn btn-clear" type="button" onclick="calcClear()" style="grid-column:1/-1;">CLEAR</button>
+                <div class="tab-heading"><h2>📏 Measurement & Calculation Tools</h2></div>
+
+                <!-- MAIN MENU -->
+                <div id="measurement-menu" style="display:block;">
+                    <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:12px;margin-top:12px;">
+                        <div class="form-section" style="cursor:pointer;text-align:center;padding:20px;" onclick="switchCalcTab('cbm-air')">
+                            <div style="font-size:2rem;">📦</div>
+                            <div style="font-weight:700;">CBM & Air Weight</div>
+                        </div>
+                        <div class="form-section" style="cursor:pointer;text-align:center;padding:20px;" onclick="switchCalcTab('duty')">
+                            <div style="font-size:2rem;">🇮🇳</div>
+                            <div style="font-weight:700;">IN Duty Calculator</div>
+                        </div>
+                        <div class="form-section" style="cursor:pointer;text-align:center;padding:20px;" onclick="switchCalcTab('product')">
+                            <div style="font-size:2rem;">💰</div>
+                            <div style="font-weight:700;">Product Pricing</div>
+                        </div>
+                        <div class="form-section" style="cursor:pointer;text-align:center;padding:20px;" onclick="switchCalcTab('insurance')">
+                            <div style="font-size:2rem;">🛡️</div>
+                            <div style="font-weight:700;">Insurance Calculation</div>
+                        </div>
+                        <div class="form-section" style="cursor:pointer;text-align:center;padding:20px;" onclick="switchCalcTab('stuffing')">
+                            <div style="font-size:2rem;">📦</div>
+                            <div style="font-weight:700;">Stuffing Planning</div>
+                        </div>
+                        <div class="form-section" style="cursor:pointer;text-align:center;padding:20px;" onclick="switchCalcTab('us-duty')">
+                            <div style="font-size:2rem;">🇺🇸</div>
+                            <div style="font-weight:700;">US Import Duty</div>
+                        </div>
+                        <div class="form-section" style="cursor:pointer;text-align:center;padding:20px;" onclick="switchCalcTab('us-trucking')">
+                            <div style="font-size:2rem;">🚛</div>
+                            <div style="font-weight:700;">US Trucking</div>
+                        </div>
+                        <div class="form-section" style="cursor:pointer;text-align:center;padding:20px;" onclick="switchCalcTab('oog-ot')">
+                            <div style="font-size:2rem;">📐</div>
+                            <div style="font-weight:700;">OOG & OT Calculation</div>
+                        </div>
+                        <div class="form-section" style="cursor:pointer;text-align:center;padding:20px;" onclick="switchCalcTab('iso-tank')">
+                            <div style="font-size:2rem;">🧪</div>
+                            <div style="font-weight:700;">ISO Tank – Density Check</div>
+                        </div>
+                        <div class="form-section" style="cursor:pointer;text-align:center;padding:20px;" onclick="switchCalcTab('detention')">
+                            <div style="font-size:2rem;">⏳</div>
+                            <div style="font-weight:700;">Detention & Demurrage Calc</div>
+                        </div>
+                        <div class="form-section" style="cursor:pointer;text-align:center;padding:20px;" onclick="switchCalcTab('freight')">
+                            <div style="font-size:2rem;">💰</div>
+                            <div style="font-weight:700;">Freight Calculation</div>
                         </div>
                     </div>
                 </div>
-            </div>
+
+                <!-- CONTENT AREA -->
+                <div id="measurement-content" style="display:none;">
+                    <div style="margin-bottom:12px;">
+                        <button class="btn btn-clear" onclick="showMeasurementMenu()">⬅ Back to Menu</button>
+                    </div>
+
+                    <!-- PANEL 1: CBM & Air Weight -->
+                    <div class="calc-panel active" id="calc-cbm-air">
+                        <div class="measurement-grid">
+                            <div class="form-section">
+                                <h3>1️⃣ CBM Converter</h3>
+                                <div class="form-grid-3col">
+                                    <div class="form-group"><label>Length</label><input type="number" id="cbm-length" placeholder="L" oninput="calculateCBM()"></div>
+                                    <div class="form-group"><label>Width</label><input type="number" id="cbm-width" placeholder="W" oninput="calculateCBM()"></div>
+                                    <div class="form-group"><label>Height</label><input type="number" id="cbm-height" placeholder="H" oninput="calculateCBM()"></div>
+                                    <div class="form-group"><label>Unit</label><select id="cbm-unit" onchange="calculateCBM()"><option value="cm">CM</option><option value="inch">Inch</option><option value="mm">MM</option><option value="m">M</option></select></div>
+                                    <div class="form-group"><label>Qty</label><input type="number" id="cbm-qty" value="1" oninput="calculateCBM()"></div>
+                                    <div class="form-group"><label>Total CBM</label><input type="text" id="cbm-result" readonly style="background:#d1fae5;font-weight:700;color:#065f46;"></div>
+                                </div>
+                            </div>
+                            <div class="form-section">
+                                <h3>2️⃣ Air Chargeable Weight</h3>
+                                <div class="form-grid-3col">
+                                    <div class="form-group"><label>Length</label><input type="number" id="air-length" placeholder="L" oninput="calculateAirChargeable()"></div>
+                                    <div class="form-group"><label>Width</label><input type="number" id="air-width" placeholder="W" oninput="calculateAirChargeable()"></div>
+                                    <div class="form-group"><label>Height</label><input type="number" id="air-height" placeholder="H" oninput="calculateAirChargeable()"></div>
+                                    <div class="form-group"><label>Unit</label><select id="air-unit" onchange="calculateAirChargeable()"><option value="cm">CM</option><option value="inch">Inch</option><option value="mm">MM</option></select></div>
+                                    <div class="form-group"><label>Qty</label><input type="number" id="air-qty" value="1" oninput="calculateAirChargeable()"></div>
+                                    <div class="form-group"><label>Weight (KGS)</label><input type="text" id="air-result" readonly style="background:#dbeafe;font-weight:700;color:#1e40af;"></div>
+                                </div>
+                                <p style="font-size:0.6rem;color:var(--text-light);margin-top:4px;">Formula: (L × W × H) / 6000 for CM, / 366 for Inch, / 6000000 for MM</p>
+                            </div>
+                        </div>
+                        <input type="hidden" id="calc-display" />
+                    </div>
+
+                    <!-- PANEL 2: IN Duty Calculator -->
+                    <div class="calc-panel" id="calc-duty">
+                        <div class="form-section">
+                            <h3>🇮🇳 IN Duty Calculator</h3>
+                            <div class="form-grid-3col">
+                                <div class="form-group"><label>Currency *</label><select id="duty-currency" onchange="setExchangeRate('duty-exrate','duty-currency')"></select></div>
+                                <div class="form-group"><label>Cargo Value *</label><input type="number" id="duty-value" step="0.01" oninput="calcDuty()"></div>
+                                <div class="form-group"><label>Exchange Rate *</label><input type="number" id="duty-exrate" step="0.0001" oninput="calcDuty()"></div>
+                                <div class="form-group"><label>Freight & Insurance (USD)</label><input type="number" id="duty-freight" step="0.01" oninput="calcDuty()" value="0"></div>
+                                <div class="form-group"><label>Duty % *</label><input type="number" id="duty-pct" step="0.01" oninput="calcDuty()"></div>
+                                <div class="form-group"><label>SWS %</label><input type="number" id="duty-service" step="0.01" oninput="calcDuty()"></div>
+                                <div class="form-group"><label>GST %</label><input type="number" id="duty-gst" step="0.01" oninput="calcDuty()"></div>
+                            </div>
+                            <div style="margin-top:16px;border-top:2px solid var(--border);padding-top:14px;">
+                                <h4 style="color:var(--primary);font-size:0.9rem;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+                                    <span>📊 IN Duty Breakdown</span>
+                                </h4>
+                                <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;box-shadow:var(--shadow);">
+                                    <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+                                        <thead>
+                                            <tr style="background:linear-gradient(135deg, var(--primary), var(--primary-light));color:white;">
+                                                <th style="padding:8px 14px;text-align:left;width:40%;">Component</th>
+                                                <th style="padding:8px 14px;text-align:right;width:30%;">Amount (INR)</th>
+                                                <th style="padding:8px 14px;text-align:right;width:30%;">Amount (USD)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">VAL</span> Cargo Value
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="duty-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="duty-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="background:var(--card-bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.7rem;">FRT</span> Freight & Insurance
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="duty-frt-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="duty-frt-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">DUT</span> Duty Amount
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="duty-amt">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="duty-amt-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="background:var(--card-bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.7rem;">SWS</span> SWS Amount
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="duty-service-amt">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="duty-service-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">GST</span> GST on Duty
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="duty-gst-amt">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="duty-gst-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="background:var(--card-bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.7rem;">TOT</span> Total GST Payable
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="duty-total-gst">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="duty-total-gst-usd">$ 0.00</td>
+                                            </tr>
+                                        </tbody>
+                                        <tfoot>
+                                            <tr style="background:var(--success);color:white;font-weight:bold;">
+                                                <td style="padding:10px 14px;">💰 Total Payable</td>
+                                                <td style="padding:10px 14px;text-align:right;" id="duty-total">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;" id="duty-total-usd">$ 0.00</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PANEL 3: Product Pricing -->
+                    <div class="calc-panel" id="calc-product">
+                        <div class="form-section">
+                            <h3>💰 Product Pricing Calculator</h3>
+                            <div class="form-grid-3col">
+                                <div class="form-group"><label>Currency *</label><select id="prod-currency" onchange="setExchangeRate('prod-exrate','prod-currency')"></select></div>
+                                <div class="form-group"><label>Exchange Rate *</label><input type="number" id="prod-exrate" step="0.0001" oninput="calcProduct()"></div>
+                                <div class="form-group"><label>Price (per unit) *</label><input type="number" id="prod-price" step="0.01" oninput="calcProduct()" placeholder="USD"></div>
+                                <div class="form-group"><label>Weight</label><input type="number" id="prod-weight" step="0.01" oninput="calcProduct()" value="0"></div>
+                                <div class="form-group"><label>Weight Unit</label><select id="prod-unit" onchange="calcProduct()">
+                                        <option value="kgs">Kgs</option>
+                                        <option value="tons">Tons</option>
+                                    </select></div>
+                                <div class="form-group"><label>Freight (USD)</label><input type="number" id="prod-freight" step="0.01" oninput="calcProduct()" value="0"></div>
+                                <div class="form-group"><label>Other Charges (USD)</label><input type="number" id="prod-other" step="0.01" oninput="calcProduct()" value="0"></div>
+                                <div class="form-group"><label>Drawback %</label><input type="number" id="prod-drawback" step="0.01" value="0" oninput="calcProduct()"></div>
+                                <div class="form-group"><label>RODTEP %</label><input type="number" id="prod-rodtep" step="0.01" value="0" oninput="calcProduct()"></div>
+                                <div class="form-group" style="grid-column:1/-1;"><label>Target Profit Margin % *</label><input type="number" id="prod-profit" step="0.01" oninput="calcProduct()"></div>
+                            </div>
+
+                            <!-- Cost Breakdown Table -->
+                            <div style="margin-top:16px;border-top:2px solid var(--border);padding-top:14px;">
+                                <h4 style="color:var(--primary);font-size:0.9rem;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+                                    <span>📊 Cost Breakdown</span>
+                                </h4>
+                                <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;box-shadow:var(--shadow);">
+                                    <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+                                        <thead>
+                                            <tr style="background:linear-gradient(135deg, var(--primary), var(--primary-light));color:white;">
+                                                <th style="padding:8px 14px;text-align:left;width:40%;">Component</th>
+                                                <th style="padding:8px 14px;text-align:right;width:30%;">Amount (INR)</th>
+                                                <th style="padding:8px 14px;text-align:right;width:30%;">Amount (USD)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">PRC</span> Product Price
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="prod-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="prod-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="background:var(--card-bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.7rem;">INS</span> Insurance
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="prod-ins-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="prod-ins-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">FRT</span> Freight
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="prod-freight-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="prod-freight-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="background:var(--card-bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.7rem;">OTH</span> Other Charges
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="prod-other-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="prod-other-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">LND</span> Total Landed Cost
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="prod-landed-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="prod-landed-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="background:var(--card-bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">PRF</span> Expected Profit
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="prod-profit-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="prod-profit-usd">$ 0.00</td>
+                                            </tr>
+                                        </tbody>
+                                        <tfoot>
+                                            <tr style="background:var(--accent);color:white;font-weight:bold;">
+                                                <td style="padding:10px 14px;">🏷️ Final Selling Price</td>
+                                                <td style="padding:10px 14px;text-align:right;" id="prod-final">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;" id="prod-final-usd">$ 0.00</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- Incentives / Benefits Table -->
+                            <div style="margin-top:16px;border-top:2px solid var(--border);padding-top:14px;">
+                                <h4 style="color:var(--primary);font-size:0.9rem;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+                                    <span>📈 Incentives / Benefits</span>
+                                    <span style="font-size:0.65rem;font-weight:400;color:var(--text-light);background:var(--bg);padding:2px 10px;border-radius:12px;">Applied to product price</span>
+                                </h4>
+                                <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;box-shadow:var(--shadow);">
+                                    <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+                                        <thead>
+                                            <tr style="background:linear-gradient(135deg, var(--primary), var(--primary-light));color:white;">
+                                                <th style="padding:8px 14px;text-align:left;width:40%;">Benefit Type</th>
+                                                <th style="padding:8px 14px;text-align:right;width:30%;">Amount (INR)</th>
+                                                <th style="padding:8px 14px;text-align:right;width:30%;">Amount (USD)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">DBK</span> Drawback
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="prod-drawback-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="prod-drawback-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="background:var(--card-bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.7rem;">ROD</span> RODTEP
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="prod-rodtep-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="prod-rodtep-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">PRF</span> Expected Profit
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="prod-benefit-profit-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="prod-benefit-profit-usd">$ 0.00</td>
+                                            </tr>
+                                        </tbody>
+                                        <tfoot>
+                                            <tr style="background:var(--success);color:white;font-weight:bold;">
+                                                <td style="padding:10px 14px;">📊 Total Margin (DBK + ROD + PRF)</td>
+                                                <td style="padding:10px 14px;text-align:right;" id="prod-total-margin-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;" id="prod-total-margin-usd">$ 0.00</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PANEL 4: Insurance Calculation -->
+                    <div class="calc-panel" id="calc-insurance">
+                        <div class="form-section">
+                            <h3>🛡️ Insurance Premium Calculator</h3>
+                            <div class="form-grid-3col">
+                                <div class="form-group"><label>Currency *</label><select id="ins-currency" onchange="setExchangeRate('ins-exrate','ins-currency')"></select></div>
+                                <div class="form-group"><label>Cargo Value *</label><input type="number" id="ins-value" step="0.01" oninput="calcInsurance()"></div>
+                                <div class="form-group"><label>Exchange Rate *</label><input type="number" id="ins-exrate" step="0.0001" oninput="calcInsurance()"></div>
+                                <div class="form-group"><label>Insurance % *</label><input type="number" id="ins-pct" step="0.01" oninput="calcInsurance()"></div>
+                                <div class="form-group"><label>GST %</label><input type="number" id="ins-gst" step="0.01" oninput="calcInsurance()"></div>
+                            </div>
+                            <div style="margin-top:16px;border-top:2px solid var(--border);padding-top:14px;">
+                                <h4 style="color:var(--primary);font-size:0.9rem;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+                                    <span>📊 Insurance Breakdown</span>
+                                </h4>
+                                <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;box-shadow:var(--shadow);">
+                                    <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+                                        <thead>
+                                            <tr style="background:linear-gradient(135deg, var(--primary), var(--primary-light));color:white;">
+                                                <th style="padding:8px 14px;text-align:left;width:40%;">Component</th>
+                                                <th style="padding:8px 14px;text-align:right;width:30%;">Amount (INR)</th>
+                                                <th style="padding:8px 14px;text-align:right;width:30%;">Amount (USD)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">VAL</span> Cargo Value
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="ins-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="ins-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="background:var(--card-bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.7rem;">INS</span> Insurance Amount
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="ins-amt">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="ins-amt-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">GST</span> GST on Insurance
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="ins-gst-amt">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="ins-gst-usd">$ 0.00</td>
+                                            </tr>
+                                        </tbody>
+                                        <tfoot id="ins-total-row" style="display:none;">
+                                            <tr style="background:var(--success);color:white;font-weight:bold;">
+                                                <td style="padding:10px 14px;">💰 Total Premium Payable</td>
+                                                <td style="padding:10px 14px;text-align:right;" id="ins-total">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;" id="ins-total-usd">$ 0.00</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PANEL 5: Stuffing Planning -->
+                    <div class="calc-panel" id="calc-stuffing">
+                        <div class="form-section">
+                            <h3>📦 Stuffing Planning</h3>
+
+                            <!-- Offset Configuration Row (global) -->
+                            <div style="margin-bottom:16px;border-bottom:1px solid var(--border);padding-bottom:12px;">
+                                <h4 style="color:var(--primary);font-size:0.9rem;margin-bottom:6px;">Offset Days (from Departure)</h4>
+                                <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:6px;">
+                                    <div class="form-group">
+                                        <label>Origin ETA</label>
+                                        <input type="number" id="offset-eta" value="-1" step="1" oninput="onOffsetChange()" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Gate Opening</label>
+                                        <input type="number" id="offset-gate-open" value="-5" step="1" oninput="onOffsetChange()" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>Gate Cut-off</label>
+                                        <input type="number" id="offset-gate-cut" value="-2" step="1" oninput="onOffsetChange()" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>SB Cut-off</label>
+                                        <input type="number" id="offset-sb-cut" value="-2" step="1" oninput="onOffsetChange()" />
+                                    </div>
+                                    <div class="form-group">
+                                        <label>SI Cut-off</label>
+                                        <input type="number" id="offset-si-cut" value="-3" step="1" oninput="onOffsetChange()" />
+                                    </div>
+                                </div>
+                                <p style="font-size:0.7rem;color:var(--text-light);margin-top:6px;">Negative numbers mean days before departure.</p>
+                            </div>
+
+                            <!-- Actions -->
+                            <div style="margin-bottom:12px;display:flex;gap:8px;flex-wrap:wrap;">
+                                <button class="btn btn-success" onclick="addStuffingRow()">+ Add Row</button>
+                                <button class="btn btn-clear" onclick="clearStuffingRows()">Clear All</button>
+                            </div>
+
+                            <!-- Stuffing Rows Table -->
+                            <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;box-shadow:var(--shadow);">
+                                <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+                                    <thead>
+                                        <tr style="background:linear-gradient(135deg, var(--primary), var(--primary-light));color:white;">
+                                            <th style="padding:8px 14px;text-align:center;">#</th>
+                                            <th style="padding:8px 14px;text-align:center;">Vessel Name</th>
+                                            <th style="padding:8px 14px;text-align:center;">Departure</th>
+                                            <th style="padding:8px 14px;text-align:center;">Origin ETA</th>
+                                            <th style="padding:8px 14px;text-align:center;">Gate Opening</th>
+                                            <th style="padding:8px 14px;text-align:center;">Gate Cut-off</th>
+                                            <th style="padding:8px 14px;text-align:center;">SB Cut-off</th>
+                                            <th style="padding:8px 14px;text-align:center;">SI Cut-off</th>
+                                            <th style="padding:8px 14px;text-align:center;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="stuffing-table-body">
+                                        <!-- Rows will be inserted by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PANEL 6: US Import Duty -->
+                    <div class="calc-panel" id="calc-us-duty">
+                        <div class="form-section">
+                            <h3>🇺🇸 US Import Duty Calculator</h3>
+                            <div class="form-grid-3col">
+                                <div class="form-group"><label>Currency *</label><select id="us-duty-currency" onchange="setExchangeRate('us-duty-exrate','us-duty-currency')"></select></div>
+                                <div class="form-group"><label>Cargo Value *</label><input type="number" id="us-duty-value" step="0.01" oninput="calcUSDuty()"></div>
+                                <div class="form-group"><label>Exchange Rate *</label><input type="number" id="us-duty-exrate" step="0.0001" oninput="calcUSDuty()"></div>
+                                <div class="form-group"><label>Duty % *</label><input type="number" id="us-duty-pct" step="0.01" oninput="calcUSDuty()"></div>
+                                <div class="form-group"><label>Tariff % *</label><input type="number" id="us-duty-tariff" step="0.01" oninput="calcUSDuty()"></div>
+                                <div class="form-group"><label>MPF %</label><input type="number" id="us-duty-mpf" step="0.0001" oninput="calcUSDuty()"></div>
+                                <div class="form-group"><label>HMF %</label><input type="number" id="us-duty-hmf" step="0.0001" oninput="calcUSDuty()"></div>
+                            </div>
+                            <div style="margin-top:16px;border-top:2px solid var(--border);padding-top:14px;">
+                                <h4 style="color:var(--primary);font-size:0.9rem;margin-bottom:8px;display:flex;align-items:center;gap:8px;">
+                                    <span>📊 US Duty Breakdown</span>
+                                </h4>
+                                <div style="background:var(--card-bg);border:1px solid var(--border);border-radius:8px;overflow:hidden;box-shadow:var(--shadow);">
+                                    <table style="width:100%;border-collapse:collapse;font-size:0.8rem;">
+                                        <thead>
+                                            <tr style="background:linear-gradient(135deg, var(--primary), var(--primary-light));color:white;">
+                                                <th style="padding:8px 14px;text-align:left;width:40%;">Component</th>
+                                                <th style="padding:8px 14px;text-align:right;width:30%;">Amount (INR)</th>
+                                                <th style="padding:8px 14px;text-align:right;width:30%;">Amount (USD)</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">VAL</span> Cargo Value
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="us-duty-inr">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="us-duty-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="background:var(--card-bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.7rem;">DUTY</span> Duty Amount
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="us-duty-amt">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="us-duty-amt-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">TARIFF</span> Tariff Amount
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="us-duty-tariff-amt">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="us-duty-tariff-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="background:var(--card-bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#fef3c7;color:#92400e;padding:2px 8px;border-radius:4px;font-size:0.7rem;">MPF</span> MPF Amount
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="us-duty-mpf-amt">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="us-duty-mpf-usd">$ 0.00</td>
+                                            </tr>
+                                            <tr style="border-bottom:1px solid var(--border);background:var(--bg);">
+                                                <td style="padding:10px 14px;font-weight:600;color:var(--text);display:flex;align-items:center;gap:6px;">
+                                                    <span style="background:#dbeafe;color:#1e3a8a;padding:2px 8px;border-radius:4px;font-size:0.7rem;">HMF</span> HMF Amount
+                                                </td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:700;color:var(--primary);" id="us-duty-hmf-amt">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;font-weight:600;color:var(--text-light);" id="us-duty-hmf-usd">$ 0.00</td>
+                                            </tr>
+                                        </tbody>
+                                        <tfoot>
+                                            <tr style="background:var(--success);color:white;font-weight:bold;">
+                                                <td style="padding:10px 14px;">💰 Total Payable</td>
+                                                <td style="padding:10px 14px;text-align:right;" id="us-duty-total">₹ 0.00</td>
+                                                <td style="padding:10px 14px;text-align:right;" id="us-duty-total-usd">$ 0.00</td>
+                                            </tr>
+                                        </tfoot>
+                                    </table>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PANEL 7: US Trucking -->
+                    <div class="calc-panel" id="calc-us-trucking">
+                        <div class="form-section">
+                            <h3 style="display:flex;justify-content:space-between;align-items:center;">
+                                <span>🚛 US Trucking Calculator</span>
+                                <a href="https://www.drayage.com/directory/dray-rates.cfm?metro=" target="_blank" style="font-size:0.8rem;font-weight:400;color:var(--primary-light);">📊 Drayage Rates Reference</a>
+                            </h3>
+
+                            <!-- Regular Section -->
+                            <div style="background:var(--bg);padding:12px;border-radius:6px;margin-bottom:12px;border-left:4px solid var(--primary);">
+                                <h4 style="color:var(--primary);margin-bottom:6px;">A. Regular</h4>
+                                <div style="display:grid;grid-template-columns:1fr 1fr;gap:10px;">
+                                    <div class="form-group"><label>Origin</label><input type="text" id="truck-origin" placeholder="e.g., LOS ANGELES, CA" oninput="onTruckInput()" style="text-transform:uppercase;"></div>
+                                    <div class="form-group"><label>Destination</label><input type="text" id="truck-dest" placeholder="e.g., CHICAGO, IL" oninput="onTruckInput()" style="text-transform:uppercase;"></div>
+                                    <div class="form-group"><label>INVENTORY (# containers)</label><input type="number" id="truck-inventory" value="1" min="1" oninput="onTruckInput()"></div>
+                                    <div class="form-group"><label>MILES</label><input type="number" id="truck-miles" placeholder="e.g., 800" oninput="onTruckInput()"></div>
+                                    <div class="form-group"><label>DISTANCE (MILES × 2)</label><input type="text" id="truck-distance" readonly style="background:#f1f5f9;font-weight:700;"></div>
+                                    <div class="form-group"><label>PER MILES ($)</label><input type="number" id="truck-per-mile" step="0.01" placeholder="e.g., 2.50" oninput="onTruckInput()"></div>
+                                    <div class="form-group"><label>MINIMUM ($)</label><input type="number" id="truck-minimum" step="0.01" placeholder="e.g., 200" oninput="onTruckInput()"></div>
+                                    <div class="form-group"><label>CHASSIS ($45/day, 2 days min)</label>
+                                        <div style="display:flex;gap:6px;align-items:center;">
+                                            <input type="number" id="truck-chassis-days" value="2" min="1" style="width:60px;" oninput="onTruckInput()">
+                                            <span style="font-size:0.8rem;color:var(--text-light);">days</span>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            <!-- Additional Service (with drag‑and‑drop) -->
+                            <div style="background:var(--bg);padding:12px;border-radius:6px;margin-bottom:12px;border-left:4px solid var(--accent);">
+                                <h4 style="color:var(--accent);margin-bottom:6px;display:flex;justify-content:space-between;align-items:center;">
+                                    <span>B. Additional Service <span style="font-size:0.7rem;font-weight:400;color:var(--text-light);">(drag rows to reorder)</span></span>
+                                    <button class="btn btn-sm btn-success" onclick="addTruckingAdditionalRow()">+ Add Charge</button>
+                                </h4>
+                                <div id="truck-additional-container">
+                                    <!-- Rows inserted by JS -->
+                                </div>
+                            </div>
+
+                            <!-- TOTALS -->
+                            <div style="display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-top:12px;">
+                                <div class="total-card" style="background:linear-gradient(135deg,#3b82f6,#1e40af);color:white;">
+                                    <div class="label">Regular Total</div>
+                                    <div class="amount" id="truck-regular-total">$ 0.00</div>
+                                </div>
+                                <div class="total-card" style="background:linear-gradient(135deg,#f59e0b,#d97706);color:white;">
+                                    <div class="label">Additional Total</div>
+                                    <div class="amount" id="truck-additional-total">$ 0.00</div>
+                                </div>
+                                <div class="total-card" style="background:linear-gradient(135deg,#10b981,#059669);color:white;">
+                                    <div class="label">GRAND TOTAL</div>
+                                    <div class="amount" id="truck-grand-total">$ 0.00</div>
+                                </div>
+                            </div>
+
+                            <!-- ACTION BUTTONS -->
+                            <div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:12px;border-top:1px solid var(--border);padding-top:12px;">
+                                <button class="btn btn-save" onclick="saveTruckingShipment()">💾 Save Shipment</button>
+                                <button class="btn btn-clear" onclick="clearTruckingForm()">🗑️ Clear</button>
+                                <button class="btn btn-preview" onclick="previewTruckingShipment()">👁 Preview</button>
+                                <button class="btn btn-pdf" onclick="downloadTruckingPDF()">📄 PDF</button>
+                                <button class="btn btn-quoted" onclick="duplicateTruckingCurrent()">📋 Duplicate</button>
+                            </div>
+                            <div id="trucking-edit-id" style="display:none;"></div>
+                        </div>
+
+                        <!-- Saved Shipments List -->
+                        <div class="form-section" style="margin-top:20px;">
+                            <h3 style="display:flex;justify-content:space-between;align-items:center;">
+                                <span>📦 Saved Trucking Shipments</span>
+                                <button class="btn btn-sm btn-clear" onclick="clearTruckingFilters()">Clear Filters</button>
+                            </h3>
+                            <div class="filter-row">
+                                <input type="text" id="truck-search" class="search-box" placeholder="🔍 Search Origin / Destination..." oninput="renderTruckingList()" style="flex:2;">
+                                <select id="truck-status-filter" onchange="renderTruckingList()" style="flex:1;">
+                                    <option value="">All Status</option>
+                                    <option value="Active">Active</option>
+                                    <option value="Completed">Completed</option>
+                                    <option value="Cancelled">Cancelled</option>
+                                </select>
+                                <select id="truck-sort" onchange="renderTruckingList()" style="flex:1;">
+                                    <option value="date-desc">Date ↓</option>
+                                    <option value="date-asc">Date ↑</option>
+                                    <option value="origin">Origin</option>
+                                </select>
+                                <select id="truck-per-page" onchange="renderTruckingList()" style="flex:1;">
+                                    <option value="10">10 / page</option>
+                                    <option value="25">25 / page</option>
+                                    <option value="50">50 / page</option>
+                                </select>
+                            </div>
+                            <div id="trucking-list"></div>
+                            <div id="trucking-pagination" class="pagination"></div>
+                        </div>
+                    </div>
+
+                    <!-- PANEL 8: OOG & OT Calculation -->
+                    <div class="calc-panel" id="calc-oog-ot">
+                        <div class="form-section">
+                            <h3 style="display:flex;justify-content:space-between;align-items:center;">
+                                <span>📐 OOG & OT (Over Dimension / Overweight) Check</span>
+                                <span style="font-size:0.7rem;font-weight:400;color:var(--text-light);">Compares cargo with container internal dims & door openings</span>
+                            </h3>
+
+                            <!-- INPUTS -->
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">
+                                <div class="form-group">
+                                    <label>Container Type</label>
+                                    <select id="oog-container" onchange="calcOOG()" style="width:100%;">
+                                        <option value="">Select Container</option>
+                                    </select>
+                                </div>
+                                <div class="form-group">
+                                    <label>Unit of Measurement (for input)</label>
+                                    <select id="oog-unit" onchange="calcOOG()" style="width:100%;">
+                                        <option value="cm">Centimeters (cm)</option>
+                                        <option value="m">Meters (m)</option>
+                                        <option value="inch">Inches</option>
+                                    </select>
+                                </div>
+                                <div class="form-group"><label>Length (L)</label><input type="number" id="oog-length" step="0.01" oninput="calcOOG()" placeholder="e.g. 590"></div>
+                                <div class="form-group"><label>Width (W)</label><input type="number" id="oog-width" step="0.01" oninput="calcOOG()" placeholder="e.g. 235"></div>
+                                <div class="form-group"><label>Height (H)</label><input type="number" id="oog-height" step="0.01" oninput="calcOOG()" placeholder="e.g. 240"></div>
+                                <div class="form-group"><label>Weight (KGS)</label><input type="number" id="oog-weight" step="0.01" oninput="calcOOG()" placeholder="e.g. 12000"></div>
+                            </div>
+
+                            <!-- RESULT SECTION (JS injects here) -->
+                            <div id="oog-result-area" style="margin-top:16px;"></div>
+                        </div>
+
+                        <!-- Editable Container Master Table -->
+                        <div class="form-section" style="margin-top:24px;">
+                            <h3 style="display:flex;justify-content:space-between;align-items:center;">
+                                <span>📦 3. Container Dimensions</span>
+                                <button class="btn btn-sm btn-success" onclick="addOOGContainerRow()">+ Add New Container</button>
+                            </h3>
+                            <div class="table-wrap" style="max-height:400px;">
+                                <table class="master-table" id="oog-container-table">
+                                    <thead>
+                                        <tr>
+                                            <th style="width:40px;">#</th>
+                                            <th>Container Type</th>
+                                            <th>Length</th>
+                                            <th>Width</th>
+                                            <th>Height</th>
+                                            <th>Tare Weight</th>
+                                            <th>Max Weight</th>
+                                            <th>CBM</th>
+                                            <th>Unit</th>
+                                            <th style="width:50px;">Action</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody id="oog-container-tbody">
+                                        <!-- Rows injected by JS -->
+                                    </tbody>
+                                </table>
+                            </div>
+                            <div style="margin-top:10px;">
+                                <button class="btn btn-quoted" onclick="saveOOGContainers()">💾 Save All</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- PANEL 9: ISO Tank – Density Check (Placeholder) -->
+                    <div class="calc-panel" id="calc-iso-tank">
+                        <div class="form-section">
+                            <h3>🧪 ISO Tank – Density Check</h3>
+                            <p style="color:var(--text-light);">This tool is under development. Please check back later.</p>
+                        </div>
+                    </div>
+
+                    <!-- PANEL 10: Detention & Demurrage -->
+                    <div class="calc-panel" id="calc-detention">
+                        <div class="form-section">
+                            <h3 style="display:flex;justify-content:space-between;align-items:center;">
+                                <span>⏳ Detention & Demurrage (5‑Lot Slab Pricing)</span>
+                                <span style="font-size:0.7rem;font-weight:400;color:var(--text-light);">Progressive calculation per day</span>
+                            </h3>
+
+                            <!-- LOT SELECTION & INPUTS -->
+                            <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:12px;background:var(--bg);padding:12px;border-radius:6px;">
+                                <div class="form-group"><label>Select Lot *</label>
+                                    <select id="det-lot" onchange="onDetLotChange()" style="width:100%;">
+                                        <option value="">Select a Lot or Custom</option>
+                                    </select>
+                                </div>
+                                <div class="form-group"><label>Currency</label>
+                                    <select id="det-currency" onchange="calcDetention()" style="width:100%;">
+                                        <option value="USD">USD ($)</option>
+                                        <option value="INR">INR (₹)</option>
+                                    </select>
+                                </div>
+                                <div class="form-group"><label>Pickup Date</label><input type="date" id="det-pickup" onchange="calcDetention()" /></div>
+                                <div class="form-group"><label>Return Date</label><input type="date" id="det-return" onchange="calcDetention()" /></div>
+                                <div class="form-group"><label>Free Days (as per Lot)</label><input type="number" id="det-free-days" step="1" oninput="calcDetention()" placeholder="e.g. 5" /></div>
+                            </div>
+
+                            <!-- PRICING SLABS (5 LOTS) -->
+                            <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:12px;">
+                                <h4 style="color:var(--primary);font-size:0.9rem;margin-bottom:6px;">📈 Progressive Pricing Slabs (5 Lots)</h4>
+                                <div style="display:grid;grid-template-columns:80px 80px 1fr 1fr;gap:6px;font-weight:600;font-size:0.8rem;color:var(--text-light);padding:4px 8px;background:var(--bg);border-radius:4px;">
+                                    <span>Slab</span><span>From (Day)</span><span>To (Day)</span><span>Rate ($/day)</span>
+                                </div>
+                                <div id="det-slabs-rows"></div>
+                                <p style="font-size:0.7rem;color:var(--text-light);margin-top:4px;">Chargeable days are calculated progressively across these 5 slabs.</p>
+                            </div>
+
+                            <!-- RESULT SECTION (JS injects here) -->
+                            <div id="det-result-area" style="margin-top:16px;"></div>
+
+                            <!-- ACTIONS -->
+                            <div style="margin-top:12px;display:flex;gap:8px;flex-wrap:wrap;">
+                                <button class="btn btn-save" onclick="saveDetentionRecord()">💾 Save Record</button>
+                                <button class="btn btn-clear" onclick="clearDetentionForm()">🗑️ Clear</button>
+                                <button class="btn btn-preview" onclick="previewDetentionRecord()">👁 Preview</button>
+                                <button class="btn btn-pdf" onclick="downloadDetentionPDF()">📄 PDF</button>
+                            </div>
+                            <div id="det-edit-id" style="display:none;"></div>
+                        </div>
+
+                        <!-- LOT MANAGEMENT -->
+                        <div class="form-section">
+                            <h3 style="display:flex;justify-content:space-between;align-items:center;">
+                                <span>📋 Manage Lots (Save Free Days + 5 Slabs)</span>
+                                <button class="btn btn-sm btn-success" onclick="openAddDetentionLotModal()">+ Add New Lot</button>
+                            </h3>
+                            <div id="det-lot-list" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px;margin-top:8px;"></div>
+                        </div>
+
+                        <!-- SAVED RECORDS -->
+                        <div class="form-section">
+                            <h3>📦 Saved Detention / Demurrage Records</h3>
+                            <div class="filter-row">
+                                <input type="text" id="det-search" class="search-box" placeholder="🔍 Search Lot / Reference..." oninput="renderDetentionRecords()" style="flex:2;">
+                                <select id="det-per-page" onchange="renderDetentionRecords()" style="flex:1;">
+                                    <option value="10">10 / page</option>
+                                    <option value="25">25 / page</option>
+                                    <option value="50">50 / page</option>
+                                </select>
+                                <button class="btn btn-sm btn-clear" onclick="clearDetentionFilters()">Clear</button>
+                            </div>
+                            <div id="det-records-list"></div>
+                            <div id="det-records-pagination" class="pagination"></div>
+                        </div>
+                    </div>
+
+                    <!-- PANEL 11: Freight Calculation -->
+                    <div class="calc-panel" id="calc-freight">
+                        <div class="form-section">
+                            <h3 style="display:flex;justify-content:space-between;align-items:center;">
+                                <span>💰 Multi-Carrier Freight Calculator</span>
+                                <span style="font-size:0.7rem;font-weight:400;color:var(--text-light);">Saves 20 GP & 40 HC rates directly to Rate Sheet</span>
+                            </h3>
+
+                            <!-- HEADER INFO -->
+                            <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:12px;margin-bottom:12px;background:var(--bg);padding:12px;border-radius:6px;">
+                                <div class="form-group"><label>Carrier *</label>
+                                    <select id="fr-carrier" onchange="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" style="text-align:center;width:100%;">
+                                        <option value="">Select Carrier</option>
+                                    </select>
+                                </div>
+                                <div class="form-group"><label>POL *</label>
+                                    <select id="fr-pol" onchange="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" style="text-align:center;width:100%;">
+                                        <option value="">Select POL</option>
+                                    </select>
+                                </div>
+                                <div class="form-group"><label>POD *</label>
+                                    <select id="fr-pod" onchange="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" style="text-align:center;width:100%;">
+                                        <option value="">Select POD</option>
+                                    </select>
+                                </div>
+                                <div class="form-group"><label>Commodity *</label>
+                                    <select id="fr-commodity" onchange="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" style="text-align:center;">
+                                        <option value="NON HAZ">NON HAZ</option>
+                                        <option value="HAZ">HAZ</option>
+                                    </select>
+                                </div>
+                                <div class="form-group"><label>Valid From</label><input type="date" id="fr-valid-from" onchange="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" style="text-align:center;" /></div>
+                                <div class="form-group"><label>Valid Till *</label><input type="date" id="fr-valid-till" onchange="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" style="text-align:center;" /></div>
+                                <div class="form-group"><label>Base Currency</label>
+                                    <select id="fr-currency" onchange="calcFreight()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" style="text-align:center;">
+                                        <option value="USD">USD ($)</option>
+                                        <option value="INR">INR (₹)</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <!-- CHARGES TABLE -->
+                            <div style="margin-top:8px;border-top:1px solid var(--border);padding-top:12px;">
+                                <h4 style="color:var(--primary);font-size:0.9rem;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+                                    <span>📋 Freight & Surcharges <span style="font-size:0.7rem;font-weight:400;color:var(--text-light);">(Unit: CNT = normal, TEU = 40′ = 2× 20′)</span></span>
+                                    <button class="btn btn-sm btn-success" onclick="addFreightChargeRow()">+ Add Charge</button>
+                                </h4>
+
+                                <div class="table-wrap" style="max-height:400px;">
+                                    <table class="master-table" id="fr-charges-table">
+                                        <thead>
+                                            <tr>
+                                                <th style="width:40px;">#</th>
+                                                <th style="min-width:150px;">Charge Name</th>
+                                                <th style="width:80px;">Unit</th>
+                                                <th style="width:80px;">Currency</th>
+                                                <th style="width:100px;">20′ Rate</th>
+                                                <th style="width:80px;">20′ Qty</th>
+                                                <th style="width:100px;">40′ Rate</th>
+                                                <th style="width:80px;">40′ Qty</th>
+                                                <th style="width:40px;"></th>
+                                            </tr>
+                                        </thead>
+                                        <tbody id="fr-charges-tbody">
+                                            <!-- Injected by JS -->
+                                        </tbody>
+                                    </table>
+                                </div>
+                            </div>
+
+                            <!-- SUMMARY & MARGIN AREA (JS injects here) -->
+                            <div id="fr-summary-area" style="margin-top:16px;border-top:2px solid var(--border);padding-top:16px;"></div>
+
+                            <!-- MARGIN INPUT & ACTIONS -->
+                            <div style="margin-top:12px;display:flex;gap:10px;align-items:center;justify-content:center;flex-wrap:wrap;">
+                                <label style="font-weight:600;font-size:0.85rem;">Custom Margin %:</label>
+                                <input type="number" id="fr-margin-pct" value="5" step="0.5" min="0" style="width:70px;padding:5px 8px;border:1px solid var(--border);border-radius:4px;text-align:center;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" oninput="applyFreightMargin()" />
+                                <button class="btn btn-sm btn-quoted" onclick="applyFreightMargin()">Apply Margin</button>
+                                <button class="btn btn-save" onclick="saveFreightRecord()">💾 Save to Rate Sheet</button>
+                                <button class="btn btn-clear" onclick="clearFreightForm()">🗑️ Clear Rates</button>
+                                <button class="btn btn-preview" onclick="previewFreightRecord()">👁 Preview</button>
+                                <button class="btn btn-pdf" onclick="downloadFreightPDF()">📄 PDF</button>
+                            </div>
+                            <div id="fr-edit-id" style="display:none;"></div>
+                        </div>
+                    </div>
+                </div><!-- /measurement-content -->
+            </div><!-- /measurement -->
 
             <!-- ===== DATABASE ===== -->
             <div class="tab-panel" id="database">
@@ -1060,7 +2338,7 @@
                         </div>
                         <div class="backup-status" id="backup-status">Last backup: Never</div>
                         <div style="margin-top:8px;font-size:0.75rem;color:var(--text-light);">
-                            ⏰ Auto backup every 15 minutes: <span id="auto-backup-status">⏳ Waiting for first run...</span>
+                            ⏰ Auto backup every 1 minute: <span id="auto-backup-status">⏳ Waiting for first run...</span>
                         </div>
                     </div>
                 </div>
@@ -1120,7 +2398,7 @@
                     </div>
                 </div>
 
-                <!-- ===== USER MANAGEMENT (Added) ===== -->
+                <!-- User Management -->
                 <div class="db-section" id="admin-user-management">
                     <div class="db-header">👥 User Management <span style="font-weight:400;font-size:0.75rem;background:rgba(255,255,255,0.2);padding:2px 10px;border-radius:12px;">Master Only</span></div>
                     <div class="db-body">
@@ -1144,15 +2422,40 @@
                         </div>
                     </div>
                 </div>
-                <!-- ===== END USER MANAGEMENT ===== -->
 
-            </div> <!-- end database tab -->
+                <!-- Measurement Defaults -->
+                <div class="db-section">
+                    <div class="db-header">📐 Measurement Defaults</div>
+                    <div class="db-body">
+                        <div class="form-grid-3col">
+                            <div class="form-group"><label>GST %</label><input type="number" id="def-gst" step="0.01" value="18" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                            <div class="form-group"><label>Insurance %</label><input type="number" id="def-insurance" step="0.01" value="0.05" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                            <div class="form-group"><label>Target Profit Margin %</label><input type="number" id="def-profit" step="0.01" value="15" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                            <div class="form-group"><label>Default Currency</label>
+                                <select id="def-currency" onchange="saveMeasurementDefaults()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+                                    <!-- Options populated by JS -->
+                                </select>
+                            </div>
+                            <div class="form-group" style="grid-column:1/-1;"><strong>🇺🇸 US Import Duty</strong></div>
+                            <div class="form-group"><label>Duty %</label><input type="number" id="def-us-duty" step="0.01" value="0" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                            <div class="form-group"><label>Tariff %</label><input type="number" id="def-us-tariff" step="0.01" value="0" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                            <div class="form-group"><label>MPF %</label><input type="number" id="def-us-mpf" step="0.0001" value="0.3464" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                            <div class="form-group"><label>HMF %</label><input type="number" id="def-us-hmf" step="0.0001" value="0.125" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                            <div class="form-group" style="grid-column:1/-1;"><strong>🇮🇳 IN Duty Calculation</strong></div>
+                            <div class="form-group"><label>Duty %</label><input type="number" id="def-in-duty" step="0.01" value="7.5" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                            <div class="form-group"><label>Social Welfare %</label><input type="number" id="def-in-social" step="0.01" value="10" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                            <div class="form-group"><label>Drawback %</label><input type="number" id="def-drawback" step="0.01" value="0" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                            <div class="form-group"><label>RODTEP %</label><input type="number" id="def-rodtep" step="0.01" value="0" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+                        </div>
+                        <button class="btn btn-quoted" onclick="saveMeasurementDefaults()" style="margin-top:10px;">💾 Save Defaults</button>
+                    </div>
+                </div>
+            </div>
 
-            <!-- ===== SEA LOCAL CHARGES (ADMIN) ===== -->
+            <!-- ===== SEA LOCAL CHARGES ===== -->
             <div class="tab-panel" id="sealocal">
                 <div class="tab-heading"><h2>🚢 Sea Local Charges</h2></div>
                 <div id="sealocal-content">
-                    <!-- Default Charges -->
                     <div class="db-section">
                         <div class="db-header">📋 Default Charges</div>
                         <div class="db-body">
@@ -1165,7 +2468,6 @@
                             <div class="table-wrap" id="dc-sea-master-table"></div>
                         </div>
                     </div>
-                    <!-- Carrier Charges -->
                     <div class="db-section">
                         <div class="db-header">🚢 Carrier-Specific Charges</div>
                         <div class="db-body">
@@ -1180,11 +2482,10 @@
                 </div>
             </div>
 
-            <!-- ===== AIR LOCAL CHARGES (ADMIN) ===== -->
+            <!-- ===== AIR LOCAL CHARGES ===== -->
             <div class="tab-panel" id="airlocal">
                 <div class="tab-heading"><h2>✈️ Air Local Charges</h2></div>
                 <div id="airlocal-content">
-                    <!-- Default Charges -->
                     <div class="db-section">
                         <div class="db-header">📋 Default Charges</div>
                         <div class="db-body">
@@ -1196,7 +2497,6 @@
                             <div class="table-wrap" id="dc-air-master-table"></div>
                         </div>
                     </div>
-                    <!-- Carrier Charges -->
                     <div class="db-section">
                         <div class="db-header">✈️ Carrier-Specific Charges</div>
                         <div class="db-body">
@@ -1210,11 +2510,10 @@
                 </div>
             </div>
 
-            <!-- ===== LCL LOCAL CHARGES (ADMIN) ===== -->
+            <!-- ===== LCL LOCAL CHARGES ===== -->
             <div class="tab-panel" id="lcllocal">
                 <div class="tab-heading"><h2>📦 LCL Local Charges</h2></div>
                 <div id="lcllocal-content">
-                    <!-- Default Charges -->
                     <div class="db-section">
                         <div class="db-header">📋 Default Charges</div>
                         <div class="db-body">
@@ -1226,7 +2525,6 @@
                             <div class="table-wrap" id="dc-lcl-master-table"></div>
                         </div>
                     </div>
-                    <!-- Carrier Charges -->
                     <div class="db-section">
                         <div class="db-header">📦 Carrier-Specific Charges</div>
                         <div class="db-body">
@@ -1243,7 +2541,7 @@
         </div> <!-- end content-area -->
     </div> <!-- end app-wrapper -->
 
-    <!-- ===== EXISTING MODALS (unchanged) ===== -->
+    <!-- ===== MODALS ===== -->
     <div class="modal" id="previewModal">
         <div class="modal-content" style="max-width:1000px;">
             <div class="modal-header"><span style="font-weight:600;" id="modal-title">Preview</span><span class="close-modal" onclick="closeModal('previewModal')" aria-label="Close preview">&times;</span></div>
@@ -1328,10 +2626,12 @@
                     <div class="form-group"><label>Subject</label><input type="text" id="email-subject" readonly style="background:#f1f5f9;font-weight:600;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
                     <div class="form-group"><label>HTML Body (preview)</label><div id="email-html-preview" style="border:1px solid var(--border);padding:10px;border-radius:4px;max-height:300px;overflow:auto;background:white;color:#333;font-family:Arial;font-size:14px;"></div></div>
                     <div style="display:flex;gap:8px;flex-wrap:wrap;">
-                        <button class="btn btn-info" type="button" onclick="copyEmailHTML()">📋 Copy HTML to Clipboard</button>
-                        <button class="btn btn-email" type="button" onclick="sendEmail()">📤 Download HTML & Open Email</button>
+                        <button class="btn btn-email" type="button" onclick="sendEmail()">📤 Send Email (Copy HTML & Open Outlook)</button>
                     </div>
-                    <p style="font-size:0.75rem;color:var(--text-light);background:#fef3c7;padding:8px;border-radius:4px;">ℹ️ Copy the HTML, then paste it into your email client's HTML editor (or attach the downloaded file).</p>
+                    <p style="font-size:0.75rem;color:var(--text-light);background:#fef3c7;padding:8px;border-radius:4px;">
+                        ℹ️ The HTML will be copied to your clipboard. Outlook will open with the recipient and subject pre‑filled.
+                        <strong>Paste the HTML</strong> into Outlook's HTML editor (or "Insert HTML" feature).
+                    </p>
                     <div style="text-align:right;display:flex;gap:8px;justify-content:flex-end;">
                         <button class="btn btn-clear" type="button" onclick="closeModal('emailModal')">Cancel</button>
                     </div>
@@ -1417,7 +2717,7 @@
         </div>
     </div>
 
-    <!-- ===== EXISTING DSR MODAL (kept for backward compatibility) ===== -->
+    <!-- ===== DSR MODALS ===== -->
     <div class="modal" id="dsrModal">
         <div class="modal-content" style="max-width:1000px;">
             <div class="modal-header"><span id="dsrModalTitle">Add Shipment</span><span class="close-modal" onclick="closeModal('dsrModal')" aria-label="Close">&times;</span></div>
@@ -1425,7 +2725,6 @@
         </div>
     </div>
 
-    <!-- ===== NEW SEA DSR POPUP ===== -->
     <div class="modal dsr-popup-modal" id="seaDsrModal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1436,7 +2735,6 @@
         </div>
     </div>
 
-    <!-- ===== NEW AIR DSR POPUP ===== -->
     <div class="modal dsr-popup-modal air" id="airDsrModal">
         <div class="modal-content">
             <div class="modal-header">
@@ -1447,7 +2745,6 @@
         </div>
     </div>
 
-    <!-- ===== BL DRAFT MODAL ===== -->
     <div class="modal" id="blModal">
         <div class="modal-content" style="max-width:1000px;">
             <div class="modal-header"><span id="blModalTitle">Bill of Lading Draft</span><span class="close-modal" onclick="closeModal('blModal')" aria-label="Close">&times;</span></div>
