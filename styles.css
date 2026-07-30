@@ -469,7 +469,7 @@ header h1 {
     background: #1e3a8a;
     color: white;
     border-radius: 5px;
-    font-size: 0.8rem;
+    font-size: .85rem;
     font-weight: 600;
     text-transform: uppercase;
     margin-bottom: 4px;
@@ -1377,28 +1377,42 @@ header h1 {
     padding: 8px 16px;
     font-size: 0.7rem;
 }
-/* DSR & BL specific styles */
+/* ===== DSR & BL specific styles ===== */
 .dsr-table,
 .bl-table {
     width: 100%;
     border-collapse: collapse;
     font-size: 0.78rem;
 }
+
+/* 🟢 ROW KA BACKGROUND (Light Blue) */
+.dsr-table tbody tr {
+    background-color: #c8f7f5 !important; 
+}
+
+/* 🟢 HEADERS (Center & Bold) */
 .dsr-table th,
 .bl-table th {
     background: #1e3a8a;
     color: white;
     padding: 6px 8px;
-    text-align: left;
+    text-align: center !important;    /* CHANGED: left se center */
+    font-weight: bold !important;     /* CHANGED: Bold headers */
     position: sticky;
     top: 0;
     z-index: 2;
 }
+
+/* 🟢 DATA CELLS (Center, Bold, & Middle Vertical) */
 .dsr-table td,
 .bl-table td {
     padding: 6px 8px;
     border-bottom: 1px solid var(--border);
+    text-align: center !important;      /* ADDED: Center align text */
+    font-weight: bold !important;       /* ADDED: Bold text */
+    vertical-align: middle !important;  /* ADDED: Vertically center */
 }
+
 .dsr-table tr:hover,
 .bl-table tr:hover {
     background: rgba(59, 130, 246, 0.05);
@@ -1828,7 +1842,7 @@ header h1 {
 }
 .dsr-charges-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr 1fr !important;
+    grid-template-columns: 1fr 1fr 1fr 1fr !important;   /* was 1fr 1fr 1fr */
     gap: 6px;
     padding: 4px 0;
 }
@@ -2306,7 +2320,10 @@ header h1 {
     margin-right: 8px;
     height: 20px;
     min-width: 20px;
-    color: #1a1a1a;
+    
+    /* 🔴 YEH CHANGES KAREIN (Neeche ki 2 lines add/change karein) */
+    color: #ffffff !important;          /* Change black to White */
+    background-color: #dc3545 !important; /* ADD: Red Background */
 }
 .badge-blue {
     background: #dbeafe;
@@ -2798,3 +2815,102 @@ header h1 {
 .perm-grid label.disabled input {
     cursor: not-allowed;
 }
+.btn-danger {
+    background: var(--danger);
+    color: white;
+}
+
+/* Planner Calendar */
+#planner-calendar-grid .planner-day {
+    padding: 6px 0;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: background 0.2s;
+    position: relative;
+}
+#planner-calendar-grid .planner-day:hover {
+    background: var(--primary-light);
+    color: white;
+}
+#planner-calendar-grid .planner-day.selected {
+    background: var(--primary);
+    color: white;
+    font-weight: 700;
+}
+#planner-calendar-grid .planner-day.other-month {
+    opacity: 0.4;
+}
+#planner-calendar-grid .planner-day .dot {
+    display: inline-block;
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    margin: 0 1px;
+}
+#planner-calendar-grid .planner-day .dot-note { background: #3b82f6; }
+#planner-calendar-grid .planner-day .dot-quote { background: #10b981; }
+#planner-calendar-grid .planner-day .dot-expiring { background: #f59e0b; }
+#planner-calendar-grid .planner-day .dot-task { background: #8b5cf6; }
+#planner-calendar-grid .planner-day .dot-shipment { background: #ef4444; }
+#planner-calendar-grid .planner-day .dot-milestone { background: #ec4899; }
+
+#planner-calendar-grid .planner-day .dots-container {
+    display: flex;
+    justify-content: center;
+    gap: 2px;
+    margin-top: 2px;
+}
+
+/* Planner Notes and Tasks */
+.planner-note-item, .planner-task-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 4px 6px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+}
+.planner-note-item .note-text {
+    flex: 1;
+}
+.planner-note-item .note-recurring {
+    font-size: 0.6rem;
+    background: #dbeafe;
+    color: #1e40af;
+    padding: 1px 6px;
+    border-radius: 10px;
+    margin-left: 6px;
+}
+.planner-task-item .task-title {
+    flex: 1;
+}
+.planner-task-item .task-status {
+    margin-left: 8px;
+    font-size: 0.7rem;
+    padding: 2px 8px;
+    border-radius: 12px;
+}
+.task-status-pending { background: #fef3c7; color: #92400e; }
+.task-status-progress { background: #dbeafe; color: #1e40af; }
+.task-status-done { background: #d1fae5; color: #065f46; }
+
+#planner-expiring-today-list .expiring-item {
+    padding: 2px 4px;
+    font-size: 0.8rem;
+}
+.planner-milestone-item {
+    padding: 2px 6px;
+    border-bottom: 1px solid var(--border);
+    font-size: 0.8rem;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+.planner-milestone-item .milestone-type {
+    font-weight: 600;
+    padding: 1px 8px;
+    border-radius: 10px;
+    font-size: 0.65rem;
+}
+.milestone-etd { background: #dbeafe; color: #1e40af; }
+.milestone-eta { background: #fef3c7; color: #92400e; }
