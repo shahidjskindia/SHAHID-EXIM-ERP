@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+	<!DOCTYPE html>
 <html lang="en">
 <head>
     <meta charset="UTF-8" />
@@ -1092,6 +1092,7 @@
                     <span>📈 REPORTS</span><span class="arrow" id="arrow-reports">▼</span>
                 </div>
                 <div class="nav-category-items" id="cat-reports">
+					<button class="tab-btn-vertical" data-tab="planner" type="button">📅 Planner</button>
                     <button class="tab-btn-vertical" data-tab="dashboard" type="button">📊 Dashboard</button>
                     <button class="tab-btn-vertical" data-tab="measurement" type="button">📏 Measurement</button>
                 </div>
@@ -1118,22 +1119,56 @@
                 <div class="duplicate-alert" id="sea-dup-alert">⚠️ <strong>Duplicate Detected!</strong> <span id="sea-dup-msg"></span></div>
                 <div class="negative-margin-warning" id="sea-margin-warning">⚠️ WARNING: Negative margin detected! Buy rate exceeds sell rate.</div>
 
-                <div class="form-section">
-                    <h3>📋 Customer & Shipment Details</h3>
-                    <div class="form-grid-3col">
-                        <div class="form-group"><label>Client Name *</label><input type="text" id="sea-client" oninput="markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Carrier *</label><select id="sea-carrier" onchange="onCarrierChange('sea');markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select Carrier</option></select></div>
-                        <div class="form-group"><label>POL *</label><select id="sea-pol" onchange="onPolChange('sea');markUnsaved('sea');checkSeaRateAuto()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select POL</option></select></div>
-                        <div class="form-group"><label>POD *</label><select id="sea-pod" onchange="markUnsaved('sea');checkSeaRateAuto()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select POD</option></select></div>
-                        <div class="form-group"><label>Incoterm</label><select id="sea-incoterm" onchange="markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select Incoterm</option></select></div>
-                        <div class="form-group"><label>Container *</label><select id="sea-container" onchange="onContainerChange('sea');markUnsaved('sea');checkSeaRateAuto()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select Size</option></select></div>
-                        <div class="form-group"><label>Commodity</label><select id="sea-commodity" onchange="markUnsaved('sea');checkSeaRateAuto()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select Commodity</option><option value="NON HAZ">NON HAZ</option><option value="HAZ">HAZ</option></select></div>
-                        <div class="form-group"><label>Weight (KGS)</label><input type="number" id="sea-weight" oninput="markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Transit Time (Days)</label><input type="number" id="sea-transit" placeholder="e.g., 5" oninput="markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Validity Date</label><input type="date" id="sea-validityDate" onchange="markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group" style="grid-column:1/-1;"><label>Remarks</label><textarea id="sea-remarks" rows="2" oninput="markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></textarea></div>
-                    </div>
-                </div>
+				<div class="form-section">
+					<h3>📋 Customer & Shipment Details</h3>
+					<div class="form-grid-3col">
+						<div class="form-group"><label>Client Name *</label><input type="text" id="sea-client" oninput="markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+
+						<div class="form-group">
+							<label>Carrier *</label>
+							<input type="text" id="sea-carrier" list="sea-carrier-list" placeholder="Type Carrier..." onchange="onCarrierChange('sea');markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+							<datalist id="sea-carrier-list"></datalist>
+						</div>
+
+						<div class="form-group">
+							<label>POL *</label>
+							<input type="text" id="sea-pol" list="sea-pol-list" placeholder="Type POL..." onchange="onPolChange('sea');markUnsaved('sea');checkSeaRateAuto()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+							<datalist id="sea-pol-list"></datalist>
+						</div>
+
+						<div class="form-group">
+							<label>POD *</label>
+							<input type="text" id="sea-pod" list="sea-pod-list" placeholder="Type POD..." onchange="markUnsaved('sea');checkSeaRateAuto()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+							<datalist id="sea-pod-list"></datalist>
+						</div>
+
+						<div class="form-group">
+							<label>Incoterm</label>
+							<input type="text" id="sea-incoterm" list="sea-incoterm-list" placeholder="Type Incoterm..." onchange="markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+							<datalist id="sea-incoterm-list"></datalist>
+						</div>
+
+						<div class="form-group">
+							<label>Container *</label>
+							<input type="text" id="sea-container" list="sea-container-list" placeholder="Type Container..." onchange="onContainerChange('sea');markUnsaved('sea');checkSeaRateAuto()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+							<datalist id="sea-container-list"></datalist>
+						</div>
+
+						<div class="form-group">
+							<label>Commodity</label>
+							<input type="text" id="sea-commodity" list="sea-commodity-list" placeholder="Type Commodity..." onchange="markUnsaved('sea');checkSeaRateAuto()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+							<datalist id="sea-commodity-list">
+								<option value="NON HAZ">
+								<option value="HAZ">
+							</datalist>
+						</div>
+
+						<div class="form-group"><label>Weight (KGS)</label><input type="number" id="sea-weight" oninput="markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+						<div class="form-group"><label>Transit Time (Days)</label><input type="number" id="sea-transit" placeholder="e.g., 5" oninput="markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+						<div class="form-group"><label>Validity Date</label><input type="date" id="sea-validityDate" onchange="markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+						<div class="form-group" style="grid-column:1/-1;"><label>Remarks</label><textarea id="sea-remarks" rows="2" oninput="markUnsaved('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></textarea></div>
+					</div>
+				</div>
 
                 <div class="charges-section">
                     <h3>💰 Freight & Local Charges <span style="font-size:0.72rem;color:var(--buy-red);font-weight:400;">(Drag to reorder • Buy rates in RED)</span></h3>
@@ -1172,23 +1207,52 @@
                 <div class="duplicate-alert" id="air-dup-alert">⚠️ <strong>Duplicate Detected!</strong> <span id="air-dup-msg"></span></div>
                 <div class="negative-margin-warning" id="air-margin-warning">⚠️ WARNING: Negative margin detected! Buy rate exceeds sell rate.</div>
 
-                <div class="form-section">
-                    <h3>📋 Customer & Shipment Details</h3>
-                    <div class="form-grid-3col">
-                        <div class="form-group"><label>Client Name *</label><input type="text" id="air-client" oninput="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Carrier *</label><select id="air-carrier" onchange="onCarrierChange('air');markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select Carrier</option></select></div>
-                        <div class="form-group"><label>POL *</label><select id="air-pol" onchange="onPolChange('air');markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select POL</option></select></div>
-                        <div class="form-group"><label>POD *</label><select id="air-pod" onchange="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select POD</option></select></div>
-                        <div class="form-group"><label>Incoterm</label><select id="air-incoterm" onchange="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select Incoterm</option></select></div>
-                        <div class="form-group"><label>Commodity</label><select id="air-commodity" onchange="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select Commodity</option><option value="NON HAZ">NON HAZ</option><option value="HAZ">HAZ</option></select></div>
-                        <div class="form-group"><label>Chargeable Weight (KGS)</label><input type="number" id="air-weight" oninput="calculateAirCharges();markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Volume (CBM)</label><input type="number" id="air-volume" oninput="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Number of Pallets</label><input type="number" id="air-pallets" oninput="calculateAirCharges();markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Transit Time (Days)</label><input type="number" id="air-transit" placeholder="e.g., 3" oninput="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Validity Date</label><input type="date" id="air-validityDate" onchange="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group" style="grid-column:1/-1;"><label>Remarks</label><textarea id="air-remarks" rows="2" oninput="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></textarea></div>
-                    </div>
-                </div>
+			<div class="form-section">
+				<h3>📋 Customer & Shipment Details</h3>
+				<div class="form-grid-3col">
+					<div class="form-group"><label>Client Name *</label><input type="text" id="air-client" oninput="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+
+					<div class="form-group">
+						<label>Carrier *</label>
+						<input type="text" id="air-carrier" list="air-carrier-list" placeholder="Type Carrier..." onchange="onCarrierChange('air');markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+						<datalist id="air-carrier-list"></datalist>
+					</div>
+
+					<div class="form-group">
+						<label>POL *</label>
+						<input type="text" id="air-pol" list="air-pol-list" placeholder="Type POL..." onchange="onPolChange('air');markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+						<datalist id="air-pol-list"></datalist>
+					</div>
+
+					<div class="form-group">
+						<label>POD *</label>
+						<input type="text" id="air-pod" list="air-pod-list" placeholder="Type POD..." onchange="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+						<datalist id="air-pod-list"></datalist>
+					</div>
+
+					<div class="form-group">
+						<label>Incoterm</label>
+						<input type="text" id="air-incoterm" list="air-incoterm-list" placeholder="Type Incoterm..." onchange="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+						<datalist id="air-incoterm-list"></datalist>
+					</div>
+
+					<div class="form-group">
+						<label>Commodity</label>
+						<input type="text" id="air-commodity" list="air-commodity-list" placeholder="Type Commodity..." onchange="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+						<datalist id="air-commodity-list">
+							<option value="NON HAZ">
+							<option value="HAZ">
+						</datalist>
+					</div>
+
+					<div class="form-group"><label>Chargeable Weight (KGS)</label><input type="number" id="air-weight" oninput="calculateAirCharges();markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+					<div class="form-group"><label>Volume (CBM)</label><input type="number" id="air-volume" oninput="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+					<div class="form-group"><label>Number of Pallets</label><input type="number" id="air-pallets" oninput="calculateAirCharges();markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+					<div class="form-group"><label>Transit Time (Days)</label><input type="number" id="air-transit" placeholder="e.g., 3" oninput="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+					<div class="form-group"><label>Validity Date</label><input type="date" id="air-validityDate" onchange="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+					<div class="form-group" style="grid-column:1/-1;"><label>Remarks</label><textarea id="air-remarks" rows="2" oninput="markUnsaved('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></textarea></div>
+				</div>
+			</div>
 
                 <div class="charges-section">
                     <h3>💰 Freight & Local Charges <span style="font-size:0.72rem;color:var(--buy-red);font-weight:400;">(Drag to reorder • Auto-calculated)</span></h3>
@@ -1227,22 +1291,51 @@
                 <div class="duplicate-alert" id="lcl-dup-alert">⚠️ <strong>Duplicate Detected!</strong> <span id="lcl-dup-msg"></span></div>
                 <div class="negative-margin-warning" id="lcl-margin-warning">⚠️ WARNING: Negative margin detected! Buy rate exceeds sell rate.</div>
 
-                <div class="form-section">
-                    <h3>📋 Customer & Shipment Details</h3>
-                    <div class="form-grid-3col">
-                        <div class="form-group"><label>Client Name *</label><input type="text" id="lcl-client" oninput="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Carrier *</label><select id="lcl-carrier" onchange="onCarrierChange('lcl');markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select Carrier</option></select></div>
-                        <div class="form-group"><label>POL *</label><select id="lcl-pol" onchange="onPolChange('lcl');markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select POL</option></select></div>
-                        <div class="form-group"><label>POD *</label><select id="lcl-pod" onchange="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select POD</option></select></div>
-                        <div class="form-group"><label>Incoterm</label><select id="lcl-incoterm" onchange="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select Incoterm</option></select></div>
-                        <div class="form-group"><label>Commodity</label><select id="lcl-commodity" onchange="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">Select Commodity</option><option value="NON HAZ">NON HAZ</option><option value="HAZ">HAZ</option></select></div>
-                        <div class="form-group"><label>Weight (KGS)</label><input type="number" id="lcl-weight" oninput="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Volume (CBM)</label><input type="number" id="lcl-volume" oninput="updateLCLPerCBM();markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Transit Time (Days)</label><input type="number" id="lcl-transit" placeholder="e.g., 30" oninput="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group"><label>Validity Date</label><input type="date" id="lcl-validityDate" onchange="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
-                        <div class="form-group" style="grid-column:1/-1;"><label>Remarks</label><textarea id="lcl-remarks" rows="2" oninput="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></textarea></div>
-                    </div>
-                </div>
+			<div class="form-section">
+				<h3>📋 Customer & Shipment Details</h3>
+				<div class="form-grid-3col">
+					<div class="form-group"><label>Client Name *</label><input type="text" id="lcl-client" oninput="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+
+					<div class="form-group">
+						<label>Carrier *</label>
+						<input type="text" id="lcl-carrier" list="lcl-carrier-list" placeholder="Type Carrier..." onchange="onCarrierChange('lcl');markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+						<datalist id="lcl-carrier-list"></datalist>
+					</div>
+
+					<div class="form-group">
+						<label>POL *</label>
+						<input type="text" id="lcl-pol" list="lcl-pol-list" placeholder="Type POL..." onchange="onPolChange('lcl');markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+						<datalist id="lcl-pol-list"></datalist>
+					</div>
+
+					<div class="form-group">
+						<label>POD *</label>
+						<input type="text" id="lcl-pod" list="lcl-pod-list" placeholder="Type POD..." onchange="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+						<datalist id="lcl-pod-list"></datalist>
+					</div>
+
+					<div class="form-group">
+						<label>Incoterm</label>
+						<input type="text" id="lcl-incoterm" list="lcl-incoterm-list" placeholder="Type Incoterm..." onchange="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+						<datalist id="lcl-incoterm-list"></datalist>
+					</div>
+
+					<div class="form-group">
+						<label>Commodity</label>
+						<input type="text" id="lcl-commodity" list="lcl-commodity-list" placeholder="Type Commodity..." onchange="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" autocomplete="off" />
+						<datalist id="lcl-commodity-list">
+							<option value="NON HAZ">
+							<option value="HAZ">
+						</datalist>
+					</div>
+
+					<div class="form-group"><label>Weight (KGS)</label><input type="number" id="lcl-weight" oninput="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+					<div class="form-group"><label>Volume (CBM)</label><input type="number" id="lcl-volume" oninput="updateLCLPerCBM();markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+					<div class="form-group"><label>Transit Time (Days)</label><input type="number" id="lcl-transit" placeholder="e.g., 30" oninput="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+					<div class="form-group"><label>Validity Date</label><input type="date" id="lcl-validityDate" onchange="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+					<div class="form-group" style="grid-column:1/-1;"><label>Remarks</label><textarea id="lcl-remarks" rows="2" oninput="markUnsaved('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></textarea></div>
+				</div>
+			</div>
 
                 <div class="charges-section">
                     <h3>💰 Freight & Local Charges <span style="font-size:0.72rem;color:var(--buy-red);font-weight:400;">(Drag to reorder • FREIGHT & THC per CBM)</span></h3>
@@ -1371,65 +1464,101 @@
                 <div class="pagination" id="ratesheet-pagination"></div>
             </div>
 
-            <!-- ===== DSR (ENHANCED) ===== -->
-            <div class="tab-panel" id="dsr">
-                <div class="tab-heading">
-                    <h2>🚢 Shipment List (DSR)</h2>
-                    <div class="add-shipment-wrapper">
-                        <button class="btn btn-success" type="button" id="addShipmentBtn" onclick="toggleAddShipmentDropdown()">+ Add Shipment ▼</button>
-                        <div class="add-shipment-dropdown" id="addShipmentDropdown">
-                            <div class="dropdown-item" onclick="openDsrModal('SEA')">
-                                <span class="icon">🚢</span> SEA Shipment
-                            </div>
-                            <div class="dropdown-item" onclick="openDsrModal('AIR')">
-                                <span class="icon">✈️</span> AIR Shipment
-                            </div>
-                        </div>
-                    </div>
-                </div>
-                <div class="filter-row">
-                    <input type="text" id="dsr-search" class="search-box" placeholder="🔍 Search Quote / Shipper / POL / POD..." oninput="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" />
-                    <select id="dsr-type-filter" onchange="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                        <option value="">All Types</option>
-                        <option value="SEA">🚢 SEA</option>
-                        <option value="AIR">✈️ AIR</option>
-                    </select>
-                    <select id="dsr-status-filter" onchange="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                        <option value="">All Status</option>
-                        <option value="Booked">Booked</option>
-                        <option value="Confirmed">Confirmed</option>
-                        <option value="In Transit">In Transit</option>
-                        <option value="Delivered">Delivered</option>
-                        <option value="Cancelled">Cancelled</option>
-                    </select>
-                    <select id="dsr-sort" onchange="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                        <option value="date-desc">Date ↓</option>
-                        <option value="date-asc">Date ↑</option>
-                        <option value="code">Quote Code</option>
-                        <option value="shipper">Shipper</option>
-                        <option value="pol">POL</option>
-                        <option value="pod">POD</option>
-                    </select>
-                    <select id="dsr-per-page" onchange="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                        <option value="25">25 / page</option>
-                        <option value="50">50 / page</option>
-                        <option value="100">100 / page</option>
-                        <option value="0">All</option>
-                    </select>
-                    <button class="btn btn-clear" type="button" onclick="clearDSRFilters()" style="height:36px;">Clear</button>
-                </div>
-                <div id="dsr-list"></div>
-                <div id="dsr-pagination" class="pagination"></div>
-            </div>
+			<!-- ===== DSR (ENHANCED) ===== -->
+			<div class="tab-panel" id="dsr">
+				<div class="tab-heading">
+					<h2>🚢 Shipment List (DSR)</h2>
+					<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+						<button class="btn btn-export btn-sm" onclick="exportDSRToExcel()">📊 Export DSR</button>
+						<div class="add-shipment-wrapper">
+							<button class="btn btn-success" type="button" id="addShipmentBtn" onclick="toggleAddShipmentDropdown()">+ Add Shipment ▼</button>
+							<div class="add-shipment-dropdown" id="addShipmentDropdown">
+								<div class="dropdown-item" onclick="openDsrModal('SEA')">
+									<span class="icon">🚢</span> SEA Shipment
+								</div>
+								<div class="dropdown-item" onclick="openDsrModal('AIR')">
+									<span class="icon">✈️</span> AIR Shipment
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
 
-            <!-- ===== BL DRAFT ===== -->
-            <div class="tab-panel" id="bldraft">
-                <div class="tab-heading">
-                    <h2>📄 Bill of Lading Drafts</h2>
-                    <button class="btn btn-success" type="button" onclick="openBLModal()">+ New BL Draft</button>
-                </div>
-                <div id="bldraft-list"></div>
-            </div>
+				<!-- Column Settings -->
+				<div style="display:flex; flex-wrap:wrap; gap:6px; margin:8px 0; align-items:center;">
+					<button class="btn btn-sm btn-info" onclick="toggleDSRColumns()">⚙️ Columns</button>
+					<div id="dsr-column-settings" style="display:none; background:var(--bg); padding:8px; border-radius:6px; flex-wrap:wrap; gap:6px; width:100%;">
+						<label><input type="checkbox" class="dsr-col-toggle" data-col="code" checked> Code</label>
+						<label><input type="checkbox" class="dsr-col-toggle" data-col="shipper" checked> Shipper</label>
+						<label><input type="checkbox" class="dsr-col-toggle" data-col="pol" checked> POL</label>
+						<label><input type="checkbox" class="dsr-col-toggle" data-col="pod" checked> POD</label>
+						<label><input type="checkbox" class="dsr-col-toggle" data-col="liner" checked> Liner</label>
+						<label><input type="checkbox" class="dsr-col-toggle" data-col="cargoStatus" checked> Cargo Status</label>
+						<label><input type="checkbox" class="dsr-col-toggle" data-col="docsStatus" checked> Docs Status</label>
+						<label><input type="checkbox" class="dsr-col-toggle" data-col="actions" checked> Actions</label>
+						<button class="btn btn-sm btn-success" onclick="saveDSRColumns()">✅ Save</button>
+					</div>
+				</div>
+
+				<!-- Filters -->
+				<div class="filter-row">
+					<input type="text" id="dsr-search" class="search-box" placeholder="🔍 Search Quote / Shipper / POL / POD..." oninput="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)" />
+					<select id="dsr-type-filter" onchange="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+						<option value="">All Types</option>
+						<option value="SEA">🚢 SEA</option>
+						<option value="AIR">✈️ AIR</option>
+					</select>
+					<select id="dsr-status-filter" onchange="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+						<option value="">All Status</option>
+						<option value="Booked">Booked</option>
+						<option value="Confirmed">Confirmed</option>
+						<option value="In Transit">In Transit</option>
+						<option value="Delivered">Delivered</option>
+						<option value="Cancelled">Cancelled</option>
+					</select>
+					<select id="dsr-sort" onchange="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+						<option value="date-desc">Date ↓</option>
+						<option value="date-asc">Date ↑</option>
+						<option value="code">Quote Code</option>
+						<option value="shipper">Shipper</option>
+						<option value="pol">POL</option>
+						<option value="pod">POD</option>
+					</select>
+					<select id="dsr-per-page" onchange="renderShipments()" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+						<option value="25">25 / page</option>
+						<option value="50">50 / page</option>
+						<option value="100">100 / page</option>
+						<option value="0">All</option>
+					</select>
+					<button class="btn btn-clear" type="button" onclick="clearDSRFilters()" style="height:36px;">Clear</button>
+				</div>
+
+				<!-- Shipment List -->
+				<div id="dsr-list"></div>
+				<div id="dsr-pagination" class="pagination"></div>
+			</div>
+
+			<!-- ===== BL DRAFT ===== -->
+			<div class="tab-panel" id="bldraft">
+				<div class="tab-heading">
+					<h2>📄 Bill of Lading Drafts</h2>
+					<div style="display:flex; gap:8px; align-items:center;">
+						<button class="btn btn-export btn-sm" onclick="exportBLDraftsToExcel()">📊 Export BL</button>
+						<div class="add-shipment-wrapper">
+							<button class="btn btn-success" type="button" id="newBLBtn" onclick="toggleBLModeChooser()">+ New BL Draft ▼</button>
+							<div class="add-shipment-dropdown" id="blModeChooser">
+								<div class="dropdown-item" onclick="openBLModal(null, null, 'SEA')">
+									<span class="icon">🚢</span> Sea BL
+								</div>
+								<div class="dropdown-item" onclick="openBLModal(null, null, 'AIR')">
+									<span class="icon">✈️</span> Air BL
+								</div>
+							</div>
+						</div>
+					</div>
+				</div>
+				<div id="bldraft-list"></div>
+			</div>
 
             <!-- ===== DASHBOARD ===== -->
             <div class="tab-panel" id="dashboard">
@@ -1447,7 +1576,9 @@
                     <div class="form-section"><h3>🛣️ Top 10 Routes</h3><ul style="list-style:none;max-height:300px;overflow-y:auto;" id="dash-top-routes"></ul></div>
                 </div>
             </div>
-
+			
+			
+			
             <!-- ===== MEASUREMENT ===== -->
             <div class="tab-panel" id="measurement">
                 <div class="tab-heading"><h2>📏 Measurement & Calculation Tools</h2></div>
@@ -2294,7 +2425,134 @@
                     </div>
                 </div><!-- /measurement-content -->
             </div><!-- /measurement -->
+			
+			<!-- ===== PLANNER / TODO ===== -->
+			<div class="tab-panel" id="planner">
+				<div class="tab-heading">
+					<h2>📅 Planner & Tasks</h2>
+					<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+						<button class="btn btn-sm btn-warning" onclick="refreshPlanner()">🔄 Refresh</button>
+						<input type="date" id="planner-date-picker" style="padding:4px 8px; border:1px solid var(--border); border-radius:4px; font-size:0.85rem;" />
+						<button class="btn btn-sm btn-info" onclick="plannerJumpToDate()">📅 Go</button>
+						<button class="btn btn-sm btn-info" onclick="plannerGoToday()">📌 Today</button>
+						<button class="btn btn-sm btn-success" onclick="plannerAddTaskModal()">+ Add Task</button>
+					</div>
+				</div>
 
+				<!-- Main Layout: Calendar + Details -->
+				<div style="display:grid; grid-template-columns: 340px 1fr; gap:16px;">
+					<!-- Left: Calendar -->
+					<div style="background:var(--card-bg); border:1px solid var(--border); border-radius:8px; padding:12px;">
+						<div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+							<button class="btn btn-sm btn-clear" onclick="plannerChangeMonth(-1)">‹</button>
+							<span id="planner-month-year" style="font-weight:700; font-size:1.1rem;"></span>
+							<button class="btn btn-sm btn-clear" onclick="plannerChangeMonth(1)">›</button>
+						</div>
+						<div id="planner-calendar-grid" style="display:grid; grid-template-columns:repeat(7,1fr); gap:4px; text-align:center; font-size:0.8rem;">
+							<!-- Headers and days injected by JS -->
+						</div>
+						<!-- Legend -->
+						<div style="display:flex; flex-wrap:wrap; gap:8px; margin-top:10px; font-size:0.65rem; color:var(--text-light); border-top:1px solid var(--border); padding-top:8px;">
+							<span><span style="display:inline-block; width:10px; height:10px; background:#3b82f6; border-radius:50%;"></span> Note</span>
+							<span><span style="display:inline-block; width:10px; height:10px; background:#10b981; border-radius:50%;"></span> Quote</span>
+							<span><span style="display:inline-block; width:10px; height:10px; background:#f59e0b; border-radius:50%;"></span> Expiring</span>
+							<span><span style="display:inline-block; width:10px; height:10px; background:#8b5cf6; border-radius:50%;"></span> Task</span>
+							<span><span style="display:inline-block; width:10px; height:10px; background:#ef4444; border-radius:50%;"></span> Shipment</span>
+							<span><span style="display:inline-block; width:10px; height:10px; background:#ec4899; border-radius:50%;"></span> Milestone</span>
+						</div>
+					</div>
+
+					<!-- Right: Details for selected date -->
+					<div style="background:var(--card-bg); border:1px solid var(--border); border-radius:8px; padding:12px; max-height:600px; overflow-y:auto;">
+						<div id="planner-selected-date" style="font-weight:700; font-size:1.1rem; margin-bottom:10px;">Select a date</div>
+
+						<!-- ====== SECTIONS AS TABLES WITH COLOURS ====== -->
+
+						<!-- 1. Notes (Blue) -->
+						<div style="margin-bottom:12px; border:1px solid #3b82f6; border-radius:6px; overflow:hidden;">
+							<div style="background:#3b82f6; color:white; padding:4px 10px; font-weight:600; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center;">
+								<span>📝 Notes</span>
+								<button class="btn btn-sm btn-success" onclick="plannerAddNote()" style="background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.3);">+</button>
+							</div>
+							<div style="padding:6px; background:var(--bg);">
+								<div id="planner-notes-container" style="font-size:0.85rem;"></div>
+								<div id="planner-note-input-area" style="display:none; margin-top:4px;">
+									<textarea id="planner-note-text" rows="2" style="width:100%; padding:4px; border:1px solid var(--border); border-radius:4px;" placeholder="Enter note..."></textarea>
+									<div style="display:flex; gap:8px; align-items:center; margin-top:4px; flex-wrap:wrap;">
+										<label style="font-size:0.75rem; font-weight:600; display:flex; align-items:center; gap:4px;">
+											<input type="checkbox" id="planner-note-recurring" /> Recurring
+										</label>
+										<select id="planner-note-recurrence-type" style="display:none; padding:2px 6px; border:1px solid var(--border); border-radius:4px; font-size:0.75rem;">
+											<option value="weekly">Weekly (same day)</option>
+											<option value="monthly">Monthly (same date)</option>
+											<option value="thisweek">This Week</option>
+											<option value="thismonth">This Month</option>
+										</select>
+										<div style="display:flex; gap:4px; margin-left:auto;">
+											<button class="btn btn-sm btn-success" onclick="plannerSaveNote()">Save</button>
+											<button class="btn btn-sm btn-clear" onclick="plannerCancelNote()">Cancel</button>
+										</div>
+									</div>
+								</div>
+							</div>
+						</div>
+
+						<!-- 2. Milestones (Pink) -->
+						<div style="margin-bottom:12px; border:1px solid #ec4899; border-radius:6px; overflow:hidden;">
+							<div style="background:#ec4899; color:white; padding:4px 10px; font-weight:600; font-size:0.85rem;">🚢 Shipment Milestones (ETD / ETA)</div>
+							<div style="padding:6px; background:var(--bg);">
+								<div id="planner-milestones-list" style="font-size:0.85rem;"></div>
+							</div>
+						</div>
+
+						<!-- 3. Quotes Quoted (Green) -->
+						<div style="margin-bottom:12px; border:1px solid #10b981; border-radius:6px; overflow:hidden;">
+							<div style="background:#10b981; color:white; padding:4px 10px; font-weight:600; font-size:0.85rem;">💰 Quotes Quoted</div>
+							<div style="padding:6px; background:var(--bg);">
+								<div id="planner-quotes-list" style="font-size:0.85rem;"></div>
+							</div>
+						</div>
+
+						<!-- 4. Expiring Quotes (Yellow) -->
+						<div style="margin-bottom:12px; border:1px solid #f59e0b; border-radius:6px; overflow:hidden;">
+							<div style="background:#f59e0b; color:white; padding:4px 10px; font-weight:600; font-size:0.85rem;">⚠️ Quotes Expiring</div>
+							<div style="padding:6px; background:var(--bg);">
+								<div id="planner-expiring-quotes-list" style="font-size:0.85rem;"></div>
+							</div>
+						</div>
+
+						<!-- 5. Expiring Rates (Today) – now in the detail panel, orange border -->
+						<div style="margin-bottom:12px; border:1px solid #f97316; border-radius:6px; overflow:hidden;">
+							<div style="background:#f97316; color:white; padding:4px 10px; font-weight:600; font-size:0.85rem;">📅 Rates Expiring on Selected Date</div>
+							<div style="padding:6px; background:var(--bg);">
+								<div id="planner-expiring-today-list-detail" style="font-size:0.85rem;"></div>
+							</div>
+						</div>
+
+
+						<!-- 6. Tasks (Purple) -->
+						<div style="margin-bottom:12px; border:1px solid #8b5cf6; border-radius:6px; overflow:hidden;">
+							<div style="background:#8b5cf6; color:white; padding:4px 10px; font-weight:600; font-size:0.85rem; display:flex; justify-content:space-between; align-items:center;">
+								<span>✅ Tasks</span>
+								<button class="btn btn-sm btn-success" onclick="plannerAddTaskQuick()" style="background:rgba(255,255,255,0.2); color:white; border:1px solid rgba(255,255,255,0.3);">+</button>
+							</div>
+							<div style="padding:6px; background:var(--bg);">
+								<div id="planner-tasks-list" style="font-size:0.85rem;"></div>
+							</div>
+						</div>
+
+						<!-- 7. Shipments Under Process (Red) -->
+						<div style="margin-bottom:12px; border:1px solid #ef4444; border-radius:6px; overflow:hidden;">
+							<div style="background:#ef4444; color:white; padding:4px 10px; font-weight:600; font-size:0.85rem;">🚢 Shipments Under Process</div>
+							<div style="padding:6px; background:var(--bg);">
+								<div id="planner-shipments-list" style="font-size:0.85rem;"></div>
+							</div>
+						</div>
+
+					</div>
+				</div>
+			</div>
+			
             <!-- ===== DATABASE ===== -->
             <div class="tab-panel" id="database">
                 <div class="tab-heading"><h2>🗄️ Database Management</h2></div>
@@ -2452,130 +2710,177 @@
                 </div>
             </div>
 
-            <!-- ===== SEA LOCAL CHARGES ===== -->
-            <div class="tab-panel" id="sealocal">
-                <div class="tab-heading"><h2>🚢 Sea Local Charges</h2></div>
-                <div id="sealocal-content">
-                    <div class="db-section">
-                        <div class="db-header">📋 Default Charges</div>
-                        <div class="db-body">
-                            <div class="filter-row">
-                                <input type="text" id="dc-sea-search" class="search-box" placeholder="🔍 Search..." oninput="renderDefaultChargesMaster('sea')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                                <select id="dc-sea-filter-carrier" onchange="renderDefaultChargesMaster('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All Carriers</option></select>
-                                <select id="dc-sea-filter-pol" onchange="renderDefaultChargesMaster('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All POLs</option></select>
-                                <button class="btn btn-quoted" type="button" onclick="openAddDefaultChargeModal('sea')">+ Add</button>
-                            </div>
-                            <div class="table-wrap" id="dc-sea-master-table"></div>
-                        </div>
-                    </div>
-                    <div class="db-section">
-                        <div class="db-header">🚢 Carrier-Specific Charges</div>
-                        <div class="db-body">
-                            <div class="filter-row">
-                                <input type="text" id="cc-sealcl-search" class="search-box" placeholder="🔍 Search Carrier / POL..." oninput="renderCarrierChargesMaster('sealcl')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                                <select id="cc-sealcl-filter-mode" onchange="renderCarrierChargesMaster('sealcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All Modes</option><option value="sea">SEA</option><option value="lcl">LCL</option></select>
-                                <button class="btn btn-quoted" type="button" onclick="openAddCarrierChargeModal('sealcl')">+ Add</button>
-                            </div>
-                            <div class="table-wrap" id="cc-sealcl-master-table"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+			<!-- ===== SEA LOCAL CHARGES ===== -->
+			<div class="tab-panel" id="sealocal">
+				<div class="tab-heading">
+					<h2>🚢 Sea Local Charges</h2>				
+					<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+					<div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+						<button class="btn btn-sm btn-danger" onclick="bulkDeleteSelectedLocal()">🗑️ Delete Selected</button>
+						<span id="selected-count" style="font-size:0.8rem; color:var(--text-light);">0 selected</span>
+					</div>						
+						<button class="btn btn-export btn-sm" onclick="bulkExportDefaultCharges()">📤 Export Default</button>
+						<button class="btn btn-export btn-sm" onclick="bulkExportCarrierCharges()">📤 Export Carrier</button>
+						<button class="btn btn-import btn-sm" onclick="document.getElementById('bulk-import-carrier-file').click()">📥 Import Carrier</button>
+						<input type="file" id="bulk-import-carrier-file" accept=".xlsx" style="display:none;" onchange="bulkImportCarrierCharges(this)" />
+						
+					</div>
+				</div>
+				<div id="sealocal-content">
+					<!-- Default Charges -->
+					<div class="db-section">
+						<div class="db-header">📋 Default Charges</div>
+						<div class="db-body">
+							<div class="filter-row">
+								<input type="text" id="dc-sea-search" class="search-box" placeholder="🔍 Search..." oninput="renderDefaultChargesMaster('sea')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+								<select id="dc-sea-filter-carrier" onchange="renderDefaultChargesMaster('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All Carriers</option></select>
+								<select id="dc-sea-filter-pol" onchange="renderDefaultChargesMaster('sea')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All POLs</option></select>
+								<button class="btn btn-quoted" type="button" onclick="openAddDefaultChargeModal('sea')">+ Add</button>
+							</div>
+							<div class="table-wrap" id="dc-sea-master-table"></div>
+						</div>
+					</div>
+					<!-- Carrier-Specific Charges -->
+					<div class="db-section">
+						<div class="db-header">🚢 Carrier-Specific Charges</div>
+						<div class="db-body">
+							<div class="filter-row">
+								<input type="text" id="cc-sealcl-search" class="search-box" placeholder="🔍 Search Carrier / POL..." oninput="renderCarrierChargesMaster('sealcl')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+								<select id="cc-sealcl-filter-mode" onchange="renderCarrierChargesMaster('sealcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All Modes</option><option value="sea">SEA</option><option value="lcl">LCL</option></select>
+								<button class="btn btn-quoted" type="button" onclick="openAddCarrierChargeModal('sealcl')">+ Add</button>
+							</div>
+							<div class="table-wrap" id="cc-sealcl-master-table"></div>
+						</div>
+					</div>
+				</div>
+			</div>
 
-            <!-- ===== AIR LOCAL CHARGES ===== -->
-            <div class="tab-panel" id="airlocal">
-                <div class="tab-heading"><h2>✈️ Air Local Charges</h2></div>
-                <div id="airlocal-content">
-                    <div class="db-section">
-                        <div class="db-header">📋 Default Charges</div>
-                        <div class="db-body">
-                            <div class="filter-row">
-                                <input type="text" id="dc-air-search" class="search-box" placeholder="🔍 Search..." oninput="renderDefaultChargesMaster('air')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                                <select id="dc-air-filter-pol" onchange="renderDefaultChargesMaster('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All POLs</option></select>
-                                <button class="btn btn-quoted" type="button" onclick="openAddDefaultChargeModal('air')">+ Add</button>
-                            </div>
-                            <div class="table-wrap" id="dc-air-master-table"></div>
-                        </div>
-                    </div>
-                    <div class="db-section">
-                        <div class="db-header">✈️ Carrier-Specific Charges</div>
-                        <div class="db-body">
-                            <div class="filter-row">
-                                <input type="text" id="cc-air-search" class="search-box" placeholder="🔍 Search Carrier / POL..." oninput="renderCarrierChargesMaster('air')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                                <button class="btn btn-quoted" type="button" onclick="openAddCarrierChargeModal('air')">+ Add</button>
-                            </div>
-                            <div class="table-wrap" id="cc-air-master-table"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-
-            <!-- ===== LCL LOCAL CHARGES ===== -->
-            <div class="tab-panel" id="lcllocal">
-                <div class="tab-heading"><h2>📦 LCL Local Charges</h2></div>
-                <div id="lcllocal-content">
-                    <div class="db-section">
-                        <div class="db-header">📋 Default Charges</div>
-                        <div class="db-body">
-                            <div class="filter-row">
-                                <input type="text" id="dc-lcl-search" class="search-box" placeholder="🔍 Search..." oninput="renderDefaultChargesMaster('lcl')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                                <select id="dc-lcl-filter-pol" onchange="renderDefaultChargesMaster('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All POLs</option></select>
-                                <button class="btn btn-quoted" type="button" onclick="openAddDefaultChargeModal('lcl')">+ Add</button>
-                            </div>
-                            <div class="table-wrap" id="dc-lcl-master-table"></div>
-                        </div>
-                    </div>
-                    <div class="db-section">
-                        <div class="db-header">📦 Carrier-Specific Charges</div>
-                        <div class="db-body">
-                            <div class="filter-row">
-                                <input type="text" id="cc-lcl-search" class="search-box" placeholder="🔍 Search Carrier / POL..." oninput="renderCarrierChargesMaster('lcl')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                                <button class="btn btn-quoted" type="button" onclick="openAddCarrierChargeModal('lcl')">+ Add</button>
-                            </div>
-                            <div class="table-wrap" id="cc-lcl-master-table"></div>
-                        </div>
-                    </div>
-                </div>
-            </div>
+			<!-- ===== AIR LOCAL CHARGES ===== -->
+			<div class="tab-panel" id="airlocal">
+				<div class="tab-heading">
+					<h2>✈️ Air Local Charges</h2>
+					<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+					<div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+						<button class="btn btn-sm btn-danger" onclick="bulkDeleteSelectedLocal()">🗑️ Delete Selected</button>
+						<span id="selected-count" style="font-size:0.8rem; color:var(--text-light);">0 selected</span>
+					</div>						
+						<button class="btn btn-export btn-sm" onclick="bulkExportDefaultCharges()">📤 Export Default</button>
+						<button class="btn btn-export btn-sm" onclick="bulkExportCarrierCharges()">📤 Export Carrier</button>
+						<button class="btn btn-import btn-sm" onclick="document.getElementById('bulk-import-carrier-file').click()">📥 Import Carrier</button>
+						<input type="file" id="bulk-import-carrier-file" accept=".xlsx" style="display:none;" onchange="bulkImportCarrierCharges(this)" />
+					</div>
+				</div>
+				<div id="airlocal-content">
+					<!-- Default Charges -->
+					<div class="db-section">
+						<div class="db-header">📋 Default Charges</div>
+						<div class="db-body">
+							<div class="filter-row">
+								<input type="text" id="dc-air-search" class="search-box" placeholder="🔍 Search..." oninput="renderDefaultChargesMaster('air')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+								<select id="dc-air-filter-pol" onchange="renderDefaultChargesMaster('air')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All POLs</option></select>
+								<button class="btn btn-quoted" type="button" onclick="openAddDefaultChargeModal('air')">+ Add</button>
+							</div>
+							<div class="table-wrap" id="dc-air-master-table"></div>
+						</div>
+					</div>
+					<!-- Carrier-Specific Charges -->
+					<div class="db-section">
+						<div class="db-header">✈️ Carrier-Specific Charges</div>
+						<div class="db-body">
+							<div class="filter-row">
+								<input type="text" id="cc-air-search" class="search-box" placeholder="🔍 Search Carrier / POL..." oninput="renderCarrierChargesMaster('air')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+								<button class="btn btn-quoted" type="button" onclick="openAddCarrierChargeModal('air')">+ Add</button>
+							</div>
+							<div class="table-wrap" id="cc-air-master-table"></div>
+						</div>
+					</div>
+				</div>
+			</div>
+			<!-- ===== LCL LOCAL CHARGES ===== -->
+			<div class="tab-panel" id="lcllocal">
+				<div class="tab-heading">
+					<h2>📦 LCL Local Charges</h2>					
+					<div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+					<div style="display:flex; gap:8px; align-items:center; margin-bottom:8px; flex-wrap:wrap;">
+						<button class="btn btn-sm btn-danger" onclick="bulkDeleteSelectedLocal()">🗑️ Delete Selected</button>
+						<span id="selected-count" style="font-size:0.8rem; color:var(--text-light);">0 selected</span>
+					</div>						
+						<button class="btn btn-export btn-sm" onclick="bulkExportDefaultCharges()">📤 Export Default</button>
+						<button class="btn btn-export btn-sm" onclick="bulkExportCarrierCharges()">📤 Export Carrier</button>
+						<button class="btn btn-import btn-sm" onclick="document.getElementById('bulk-import-carrier-file').click()">📥 Import Carrier</button>
+						<input type="file" id="bulk-import-carrier-file" accept=".xlsx" style="display:none;" onchange="bulkImportCarrierCharges(this)" />
+					</div>
+				</div>
+				<div id="lcllocal-content">
+					<!-- Default Charges -->
+					<div class="db-section">
+						<div class="db-header">📋 Default Charges</div>
+						<div class="db-body">
+							<div class="filter-row">
+								<input type="text" id="dc-lcl-search" class="search-box" placeholder="🔍 Search..." oninput="renderDefaultChargesMaster('lcl')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+								<select id="dc-lcl-filter-pol" onchange="renderDefaultChargesMaster('lcl')" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"><option value="">All POLs</option></select>
+								<button class="btn btn-quoted" type="button" onclick="openAddDefaultChargeModal('lcl')">+ Add</button>
+							</div>
+							<div class="table-wrap" id="dc-lcl-master-table"></div>
+						</div>
+					</div>
+					<!-- Carrier-Specific Charges -->
+					<div class="db-section">
+						<div class="db-header">📦 Carrier-Specific Charges</div>
+						<div class="db-body">
+							<div class="filter-row">
+								<input type="text" id="cc-lcl-search" class="search-box" placeholder="🔍 Search Carrier / POL..." oninput="renderCarrierChargesMaster('lcl')" style="flex:1;min-width:200px;margin:0;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
+								<button class="btn btn-quoted" type="button" onclick="openAddCarrierChargeModal('lcl')">+ Add</button>
+							</div>
+							<div class="table-wrap" id="cc-lcl-master-table"></div>
+						</div>
+					</div>
+				</div>
+			</div>
 
         </div> <!-- end content-area -->
     </div> <!-- end app-wrapper -->
-
-    <!-- ===== MODALS ===== -->
-    <div class="modal" id="previewModal">
-        <div class="modal-content" style="max-width:1000px;">
-            <div class="modal-header"><span style="font-weight:600;" id="modal-title">Preview</span><span class="close-modal" onclick="closeModal('previewModal')" aria-label="Close preview">&times;</span></div>
-            <div class="modal-body" id="previewBody"></div>
-        </div>
-    </div>
-
-    <div class="modal" id="deleteModal">
-        <div class="delete-modal-content">
-            <div class="delete-modal-body">
-                <div class="delete-icon">⚠️</div>
-                <h3>Delete Confirmation</h3>
-                <p id="deleteMessage">Are you sure?</p>
-                <div class="lost-reason-box" id="lost-reason-box">
-                    <label style="font-weight:700;color:#991b1b;">Reason for Losing Quote:</label>
-                    <select id="lost-reason-select" style="width:100%;padding:8px;margin-top:6px;border:1px solid #ef4444;border-radius:4px;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)">
-                        <option value="">Select Reason</option>
-                        <option value="HIGH RATES">High Rates</option>
-                        <option value="SLOW RESPONSE">Slow Response</option>
-                        <option value="NO SERVICE">No Service Available</option>
-                        <option value="CLIENT NOT INTERESTED">Client Not Interested</option>
-                        <option value="COMPETITOR WON">Competitor Won</option>
-                        <option value="BUDGET CONSTRAINTS">Budget Constraints</option>
-                        <option value="OTHER">Other</option>
-                    </select>
-                </div>
-                <div class="delete-modal-actions">
-                    <button class="btn btn-clear" type="button" id="deleteConfirmBtn">Yes, Delete</button>
-                    <button class="btn btn-quoted" type="button" onclick="closeModal('deleteModal')">Cancel</button>
-                </div>
-            </div>
-        </div>
-    </div>
-
+		<!-- Preview Modal -->
+		<div class="modal" id="previewModal">
+			<div class="modal-content" style="max-width:1000px;">
+				<div class="modal-header"><span style="font-weight:600;" id="modal-title">Preview</span><span class="close-modal" onclick="closeModal('previewModal')" aria-label="Close preview">&times;</span></div>
+				<div class="modal-body" id="previewBody"></div>
+			</div>
+		</div>
+		<!-- ===== RATE RENEWAL MODAL ===== -->
+		<div class="modal" id="renewalModal">
+			<div class="modal-content" style="max-width:600px;">
+				<div class="modal-header">
+					<span style="font-weight:600;">🔄 Renew Rate</span>
+					<span class="close-modal" onclick="closeModal('renewalModal')" aria-label="Close">&times;</span>
+				</div>
+				<div class="modal-body" id="renewalModalBody">
+					<!-- Form will be injected by JS -->
+				</div>
+			</div>
+		</div>
+		<!-- Email Modal -->
+		<div class="modal" id="emailModal">
+			<div class="modal-content" style="max-width:550px;">
+				<div class="modal-header"><span style="font-weight:600;">📧 Email Quotation</span><span class="close-modal" onclick="closeModal('emailModal')" aria-label="Close">&times;</span></div>
+				<div class="modal-body">
+					<div style="display:flex;flex-direction:column;gap:10px;">
+						<div class="form-group"><label>To</label><input type="email" id="email-to" placeholder="client@example.com" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+						<div class="form-group"><label>CC</label><input type="email" id="email-cc" placeholder="optional" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+						<div class="form-group"><label>Subject</label><input type="text" id="email-subject" readonly style="background:#f1f5f9;font-weight:600;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
+						<div class="form-group"><label>HTML Body (preview)</label><div id="email-html-preview" style="border:1px solid var(--border);padding:10px;border-radius:4px;max-height:300px;overflow:auto;background:white;color:#333;font-family:Arial;font-size:14px;"></div></div>
+						<div style="display:flex;gap:8px;flex-wrap:wrap;">
+							<button class="btn btn-email" type="button" onclick="sendEmail()">📤 Send Email (Copy & Open Outlook)</button>
+							<button class="btn btn-info" onclick="copyEmailCompact()">📋 Copy Tables (Compact)</button>
+						</div>
+						<div style="text-align:right;display:flex;gap:8px;justify-content:flex-end;">
+							<button class="btn btn-clear" type="button" onclick="closeModal('emailModal')">Cancel</button>
+						</div>
+					</div>
+				</div>
+			</div>
+		</div>
+	</div>
     <div class="modal" id="addChargeModal">
         <div class="modal-content" style="max-width:500px;">
             <div class="modal-header"><span style="font-weight:600;" id="addChargeTitle">Add New Charge</span><span class="close-modal" onclick="closeModal('addChargeModal')" aria-label="Close">&times;</span></div>
@@ -2625,7 +2930,8 @@
                     <div class="form-group"><label>CC</label><input type="email" id="email-cc" placeholder="optional" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
                     <div class="form-group"><label>Subject</label><input type="text" id="email-subject" readonly style="background:#f1f5f9;font-weight:600;" onfocus="highlightInput(this)" onblur="unhighlightInput(this)"></div>
                     <div class="form-group"><label>HTML Body (preview)</label><div id="email-html-preview" style="border:1px solid var(--border);padding:10px;border-radius:4px;max-height:300px;overflow:auto;background:white;color:#333;font-family:Arial;font-size:14px;"></div></div>
-                    <div style="display:flex;gap:8px;flex-wrap:wrap;">
+                    <button class="btn btn-info" onclick="copyEmailCompact()">📋 Copy Tables (Compact)</button>
+					<div style="display:flex;gap:8px;flex-wrap:wrap;">
                         <button class="btn btn-email" type="button" onclick="sendEmail()">📤 Send Email (Copy HTML & Open Outlook)</button>
                     </div>
                     <p style="font-size:0.75rem;color:var(--text-light);background:#fef3c7;padding:8px;border-radius:4px;">
@@ -2654,7 +2960,32 @@
             </div>
         </div>
     </div>
-
+		<!-- Delete Confirmation Modal -->
+	<div class="modal" id="deleteModal">
+		<div class="delete-modal-content">
+			<div class="delete-modal-body">
+				<div class="delete-icon">⚠️</div>
+				<h3>Confirm Delete</h3>
+				<p id="deleteMessage"></p>
+				<div id="lost-reason-box" class="lost-reason-box" style="display:none;">
+					<label for="lost-reason-select">Reason for losing:</label>
+					<select id="lost-reason-select">
+						<option value="High Rates">High Rates</option>
+						<option value="Slow Response">Slow Response</option>
+						<option value="No Service">No Service</option>
+						<option value="Client Not Interested">Client Not Interested</option>
+						<option value="Competitor Won">Competitor Won</option>
+						<option value="Budget Constraints">Budget Constraints</option>
+						<option value="Other">Other</option>
+					</select>
+				</div>
+				<div class="delete-modal-actions">
+					<button class="btn btn-clear" onclick="closeModal('deleteModal')">Cancel</button>
+					<button class="btn btn-danger" id="deleteConfirmBtn">Delete</button>
+				</div>
+			</div>
+		</div>
+	</div>
     <div class="modal" id="rateSheetModal">
         <div class="modal-content" style="max-width:700px;">
             <div class="modal-header"><span style="font-weight:600;" id="rateSheetModalTitle">Add New Rate</span><span class="close-modal" onclick="closeModal('rateSheetModal')" aria-label="Close">&times;</span></div>
